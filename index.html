@@ -411,7 +411,8 @@
 
         <div class="panel" style="margin-top:16px">
           <div class="panel-h">Bilan du jour
-            <input id="mv-jour" type="date" style="margin-left:auto;max-width:170px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+            <input id="mv-jour" type="date" style="margin-left:auto;max-width:150px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+            <button class="btn btn-dark btn-sm" id="mv-print" style="margin-left:8px">📄 Imprimer / PDF</button>
           </div>
           <div class="panel-b" id="mv-bilan"></div>
         </div>
@@ -2274,6 +2275,52 @@ function renderBilan(){
     ${rows?`<div style="display:grid;grid-template-columns:1fr 54px 54px;gap:6px;font-size:10px;text-transform:uppercase;color:var(--muted);font-weight:700;padding-bottom:4px;border-bottom:1px solid var(--line)"><div>Référence</div><div class="tcenter">Ent.</div><div class="tcenter">Sort.</div></div>${rows}`:'<div class="empty" style="padding:6px">Aucun mouvement ce jour.</div>'}`;
 }
 document.getElementById('mv-jour').addEventListener('change',renderBilan);
+
+/* document imprimable : bilan de stock du jour */
+function bilanDocHTML(d){
+  const day=mouvements.filter(m=>m.date===d);
+  const E=day.filter(m=>m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0);
+  const S=day.filter(m=>m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0);
+  const byRef={};
+  day.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:k,des:m.des||'',e:0,s:0}; if(m.type==='entree')byRef[k].e+=+m.qte||0; else byRef[k].s+=+m.qte||0; });
+  const list=Object.values(byRef).sort((a,b)=>a.ref.localeCompare(b.ref));
+  const rows=list.map(r=>`<tr>
+     <td class="ref">${esc(r.ref)}</td><td>${esc(r.des||(findStock(r.ref)||{}).des||'')}</td>
+     <td class="qte" style="color:#0b7a70">+${r.e}</td><td class="qte" style="color:#b91c1c">−${r.s}</td>
+     <td class="qte"><b>${resteFor(r.ref)}</b></td></tr>`).join('');
+  let fillers=''; for(let i=list.length;i<10;i++) fillers+='<tr class="filler"><td class="ref"></td><td></td><td></td><td></td><td></td></tr>';
+  const ids=[];
+  if(settings.ice) ids.push('ICE : '+esc(settings.ice));
+  if(settings.if) ids.push('IF : '+esc(settings.if));
+  return `
+  <div class="dhead">
+    <div class="dhead-l">
+      ${settings.logo?`<img class="d-logo" src="${settings.logo}">`:''}
+      <div class="d-name">${esc(settings.nom)||'TECH HOME'}</div>
+      ${settings.sub?`<div class="d-sub">${esc(settings.sub)}</div>`:''}
+      ${settings.addr?`<div class="d-addr">${esc(settings.addr)}</div>`:''}
+      ${ids.length?`<div class="d-ids">${ids.join(' &nbsp;·&nbsp; ')}</div>`:''}
+    </div>
+  </div>
+  <div class="g-title">Bilan de stock — ${frDate(d)}</div>
+  <div class="tot-wrap" style="justify-content:flex-start;gap:14px;margin-top:4px">
+    <div class="tot-box"><div class="tlab">Total entrées</div><div class="tval">${E}</div></div>
+    <div class="tot-box"><div class="tlab">Total sorties</div><div class="tval">${S}</div></div>
+  </div>
+  <div class="g-sec" style="margin-top:16px">Détail par produit</div>
+  <table class="items">
+    <thead><tr><th>Référence</th><th>Désignation</th><th>Entrées</th><th>Sorties</th><th>Reste actuel</th></tr></thead>
+    <tbody>${rows}${fillers}</tbody>
+  </table>
+  <div class="sign" style="justify-content:flex-start">
+    <div class="slot"><div class="sline">Vérifié par (nom & signature)</div></div>
+  </div>`;
+}
+document.getElementById('mv-print').addEventListener('click',()=>{
+  const d=document.getElementById('mv-jour').value||todayISO();
+  if(!mouvements.some(m=>m.date===d) && !confirm('Aucun mouvement ce jour. Imprimer un bilan vide ?')) return;
+  exportSimplePDF(bilanDocHTML(d),'BILAN_STOCK_'+d);
+});
 
 /* ============================================================
    INIT
