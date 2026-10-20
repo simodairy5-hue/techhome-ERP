@@ -395,10 +395,7 @@
               </div>
               <div class="field" style="max-width:120px"><label>Quantité</label><input id="mv-qte" type="number" min="1" value="1"></div>
             </div>
-            <div class="row">
-              <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
-              <div class="field" style="max-width:120px"><label>Seuil d'alerte</label><input id="mv-seuil" type="number" min="0" value="5"></div>
-            </div>
+            <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
             <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : réassort fournisseur, vente, retour…"></div>
             <button class="btn btn-primary btn-block" id="mv-save">+ Enregistrer le mouvement</button>
             <div class="hint" style="margin-top:8px">Choisis un produit pour pré-remplir, ou tape la référence. Le reste se calcule automatiquement.</div>
@@ -417,8 +414,7 @@
       <div>
         <div class="panel">
           <div class="panel-h">Stock actuel <span id="stk-count" class="pill"></span>
-            <span id="stk-alert" style="margin-left:auto;font-size:12px;color:#b45309;font-weight:700"></span>
-            <button class="btn btn-ghost btn-sm" id="stk-sync" style="margin-left:10px">Importer les produits connus</button>
+            <button class="btn btn-ghost btn-sm" id="stk-sync" style="margin-left:auto">Importer les produits connus</button>
           </div>
           <div class="panel-b" style="padding:0;overflow-x:auto">
             <table class="data" id="stk-table">
@@ -796,7 +792,7 @@ let products = load(KEY.prod,[]);
 let clients  = load(KEY.cli,[]);
 let bons     = load(KEY.bon,[]);
 let garanties= load(KEY.gar,[]);
-let stock    = load(KEY.stock,[]);   // registre produits [{ref,des,seuil,counted}]
+let stock    = load(KEY.stock,[]);   // registre produits [{ref,des}]
 let mouvements = load(KEY.mouv,[]);  // journal [{id,date,ref,des,type:'entree'|'sortie',qte,note,createdAt}]
 normSettings();
 try{ localStorage.setItem(KEY.set,JSON.stringify(settings)); }catch(e){}
@@ -2134,20 +2130,18 @@ function findStock(ref){ const k=stockKey(ref); return stock.find(s=>stockKey(s.
 function entreesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0); }
 function sortiesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0); }
 function resteFor(ref){ return entreesFor(ref)-sortiesFor(ref); }
-function stkNew(s){ return s.counted===false && entreesFor(s.ref)===0 && sortiesFor(s.ref)===0; }
-function stkLow(s){ return !stkNew(s) && resteFor(s.ref)<=(s.seuil||0); }
 /* crée/complète un produit dans le registre */
-function ensureProduct(ref,des,seuil){
+function ensureProduct(ref,des){
   const k=stockKey(ref); if(!k) return null;
   let s=findStock(k);
-  if(!s){ s={ref:k,des:des||k,seuil:(seuil!=null?seuil:5),counted:true}; stock.push(s); }
-  else { if(des) s.des=des; if(seuil!=null) s.seuil=seuil; s.counted=true; }
+  if(!s){ s={ref:k,des:des||k}; stock.push(s); }
+  else if(des) s.des=des;
   return s;
 }
-/* enregistre un produit vu à l'import (reste 0, « à compter » tant qu'aucun mouvement) */
+/* enregistre un produit vu à l'import */
 function registerStockRef(ref,des){
   const k=stockKey(ref); if(!k) return;
-  if(!stock.some(s=>stockKey(s.ref)===k)){ stock.push({ref:k,des:des||k,seuil:5,counted:false}); save(KEY.stock,stock); }
+  if(!stock.some(s=>stockKey(s.ref)===k)){ stock.push({ref:k,des:des||k}); save(KEY.stock,stock); }
 }
 /* migration : convertit l'ancien stock (qte unique) en mouvements d'ouverture, une seule fois */
 function migrateStock(){
@@ -2168,7 +2162,6 @@ document.getElementById('mv-prod').addEventListener('change',e=>{
   const p=knownProducts().find(x=>stockKey(x.ref)===stockKey(ref));
   document.getElementById('mv-ref').value=ref;
   document.getElementById('mv-des').value=p?(p.des||''):'';
-  const s=findStock(ref); if(s) document.getElementById('mv-seuil').value=s.seuil!=null?s.seuil:5;
 });
 document.getElementById('mv-save').addEventListener('click',()=>{
   const ref=document.getElementById('mv-ref').value.trim();
@@ -2178,10 +2171,9 @@ document.getElementById('mv-save').addEventListener('click',()=>{
   const qte=parseInt(document.getElementById('mv-qte').value)||0;
   if(qte<=0){ toast('Quantité invalide',true); return; }
   const date=document.getElementById('mv-date').value||todayISO();
-  const seuilRaw=document.getElementById('mv-seuil').value; const seuil=seuilRaw===''?undefined:(parseInt(seuilRaw)||0);
   const note=document.getElementById('mv-note').value.trim();
   if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
-  ensureProduct(ref,des,seuil);
+  ensureProduct(ref,des);
   mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,createdAt:Date.now()});
   save(KEY.mouv,mouvements); save(KEY.stock,stock);
   mvResetForm(); renderStock();
@@ -2199,19 +2191,14 @@ document.getElementById('stk-sync').addEventListener('click',()=>{
   renderStock();
   toast(n?(n+' produit(s) ajouté(s) au stock ✓'):'Tous les produits connus sont déjà dans le stock');
 });
-/* ajustement rapide +1 / −1 (enregistre un mouvement du jour) */
-function stkMove(ref,delta){
-  if(delta<0 && resteFor(ref)<=0){ toast('Le reste est déjà à 0',true); return; }
-  const type=delta>0?'entree':'sortie';
+/* mouvement rapide depuis le tableau, avec la quantité saisie dans la ligne */
+function stkMove(ref,type,qte){
+  qte=parseInt(qte)||0; if(qte<=0){ toast('Indique une quantité',true); return; }
+  if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
   const s=ensureProduct(ref);
-  mouvements.unshift({id:uid(),date:todayISO(),ref:stockKey(ref),des:(s&&s.des)||ref,type,qte:1,note:'Ajustement rapide',createdAt:Date.now()});
+  mouvements.unshift({id:uid(),date:todayISO(),ref:stockKey(ref),des:(s&&s.des)||ref,type,qte,note:'',createdAt:Date.now()});
   save(KEY.mouv,mouvements); save(KEY.stock,stock); renderStock();
-}
-function stkEditSeuil(ref){
-  const s=findStock(ref); if(!s) return;
-  const v=prompt('Seuil d\'alerte pour '+s.ref+' (alerte quand le reste descend à ce niveau) :', s.seuil!=null?s.seuil:5);
-  if(v===null) return;
-  s.seuil=parseInt(v)||0; s.counted=true; save(KEY.stock,stock); renderStock();
+  toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' ✓');
 }
 function renderStock(){
   const tb=document.querySelector('#stk-table tbody'); if(!tb) return;
@@ -2219,31 +2206,24 @@ function renderStock(){
   document.getElementById('stk-count').textContent=stock.length;
   document.getElementById('stk-empty').style.display=stock.length?'none':'block';
   document.getElementById('stk-table').style.display=stock.length?'table':'none';
-  const low=stock.filter(stkLow).length;
-  const aCompter=stock.filter(stkNew).length;
-  const parts=[]; if(low) parts.push('⚠ '+low+' en stock bas'); if(aCompter) parts.push('○ '+aCompter+' à compter');
-  document.getElementById('stk-alert').textContent=parts.join('  ·  ');
   const list=stock.slice().sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
   tb.innerHTML=list.map(s=>{
-    const E=entreesFor(s.ref), S=sortiesFor(s.ref), R=E-S, neuf=stkNew(s), lowRow=stkLow(s);
-    const bg=neuf?' style="background:#f1f5f9"':(lowRow?' style="background:#fff7ed"':'');
-    const resteBadge = neuf?'<span class="cmd-badge" style="background:#e2e8f0;color:#475569">à compter</span>'
-      : '<span class="cmd-badge" style="'+(lowRow?'background:#fee2e2;color:#b91c1c':'')+'">'+R+'</span>'+(lowRow?' <span style="color:#b91c1c;font-size:10px;font-weight:700">bas</span>':'');
-    return `<tr${bg}>
+    const E=entreesFor(s.ref), S=sortiesFor(s.ref), R=E-S;
+    return `<tr>
       <td style="font-weight:600">${esc(s.ref)}</td>
       <td>${esc(s.des)||'—'}</td>
       <td class="tcenter" style="color:#0b7a70;font-weight:600">${E}</td>
       <td class="tcenter" style="color:#b91c1c;font-weight:600">${S}</td>
-      <td class="tcenter">${resteBadge}</td>
+      <td class="tcenter"><span class="cmd-badge">${R}</span></td>
       <td class="tright" style="white-space:nowrap">
-        <button class="btn btn-ghost btn-sm" data-minus="${esc(s.ref)}" title="Sortie 1">−</button>
-        <button class="btn btn-ghost btn-sm" data-plus="${esc(s.ref)}" title="Entrée 1">+</button>
-        <button class="btn btn-ghost btn-sm" data-seuil="${esc(s.ref)}">Seuil</button>
+        <input type="number" min="1" value="1" data-qty="${esc(s.ref)}" style="width:56px;padding:5px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">
+        <button class="btn btn-ghost btn-sm" data-in="${esc(s.ref)}" title="Entrée">+ Entrée</button>
+        <button class="btn btn-ghost btn-sm" data-out="${esc(s.ref)}" title="Sortie">− Sortie</button>
         <button class="btn btn-danger btn-sm" data-del="${esc(s.ref)}">Suppr.</button>
       </td></tr>`;}).join('');
-  tb.querySelectorAll('[data-plus]').forEach(b=>b.onclick=()=>stkMove(b.dataset.plus,1));
-  tb.querySelectorAll('[data-minus]').forEach(b=>b.onclick=()=>stkMove(b.dataset.minus,-1));
-  tb.querySelectorAll('[data-seuil]').forEach(b=>b.onclick=()=>stkEditSeuil(b.dataset.seuil));
+  const qtyOf=ref=>{ const el=tb.querySelector(`[data-qty="${CSS.escape(ref)}"]`); return el?el.value:1; };
+  tb.querySelectorAll('[data-in]').forEach(b=>b.onclick=()=>stkMove(b.dataset.in,'entree',qtyOf(b.dataset.in)));
+  tb.querySelectorAll('[data-out]').forEach(b=>b.onclick=()=>stkMove(b.dataset.out,'sortie',qtyOf(b.dataset.out)));
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); renderStock(); } });
   renderMouvements(); renderBilan();
 }
