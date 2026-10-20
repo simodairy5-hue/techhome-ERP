@@ -374,38 +374,74 @@
   <!-- =================== STOCK =================== -->
   <div class="view" id="view-stock">
     <div class="grid-2">
-      <div class="panel">
-        <div class="panel-h" id="stk-form-title">Ajouter / mettre à jour un produit</div>
-        <div class="panel-b">
-          <div class="field"><label>Produit (déjà importé)</label>
-            <select id="stk-prod"><option value="">— choisir ou saisir ci-dessous —</option></select>
+      <!-- Colonne gauche : enregistrer un mouvement + bilan du jour -->
+      <div class="form-col">
+        <div class="panel">
+          <div class="panel-h">Enregistrer un mouvement</div>
+          <div class="panel-b">
+            <div class="field"><label>Produit</label>
+              <select id="mv-prod"><option value="">— choisir ou saisir ci-dessous —</option></select>
+            </div>
+            <div class="row">
+              <div class="field" style="max-width:150px"><label>Référence</label><input id="mv-ref" type="text" placeholder="VT995"></div>
+              <div class="field"><label>Désignation</label><input id="mv-des" type="text" placeholder="VENTILATEUR VT995"></div>
+            </div>
+            <div class="row">
+              <div class="field"><label>Type</label>
+                <select id="mv-type">
+                  <option value="entree">Entrée (+)</option>
+                  <option value="sortie">Sortie (−)</option>
+                </select>
+              </div>
+              <div class="field" style="max-width:120px"><label>Quantité</label><input id="mv-qte" type="number" min="1" value="1"></div>
+            </div>
+            <div class="row">
+              <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
+              <div class="field" style="max-width:120px"><label>Seuil d'alerte</label><input id="mv-seuil" type="number" min="0" value="5"></div>
+            </div>
+            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : réassort fournisseur, vente, retour…"></div>
+            <button class="btn btn-primary btn-block" id="mv-save">+ Enregistrer le mouvement</button>
+            <div class="hint" style="margin-top:8px">Choisis un produit pour pré-remplir, ou tape la référence. Le reste se calcule automatiquement.</div>
           </div>
-          <div class="row">
-            <div class="field" style="max-width:150px"><label>Référence</label><input id="stk-ref" type="text" placeholder="VT995"></div>
-            <div class="field"><label>Désignation</label><input id="stk-des" type="text" placeholder="VENTILATEUR VT995"></div>
+        </div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-h">Bilan du jour
+            <input id="mv-jour" type="date" style="margin-left:auto;max-width:170px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
           </div>
-          <div class="row">
-            <div class="field"><label>Quantité en stock</label><input id="stk-qte" type="number" min="0" value="0"></div>
-            <div class="field"><label>Seuil d'alerte</label><input id="stk-seuil" type="number" min="0" value="5"></div>
-          </div>
-          <div class="btn-bar">
-            <button class="btn btn-primary" id="stk-save">Enregistrer</button>
-            <button class="btn btn-ghost" id="stk-cancel" style="display:none">Annuler</button>
-          </div>
-          <div class="hint" style="margin-top:8px">Choisis un produit de la liste pour pré-remplir, ou tape la référence. « Enregistrer » crée ou met à jour la ligne de stock.</div>
+          <div class="panel-b" id="mv-bilan"></div>
         </div>
       </div>
-      <div class="panel">
-        <div class="panel-h">Stock <span id="stk-count" class="pill"></span>
-          <span id="stk-alert" style="margin-left:auto;font-size:12px;color:#b45309;font-weight:700"></span>
-          <button class="btn btn-ghost btn-sm" id="stk-sync" style="margin-left:10px">Importer les produits connus</button>
+
+      <!-- Colonne droite : stock actuel + journal -->
+      <div>
+        <div class="panel">
+          <div class="panel-h">Stock actuel <span id="stk-count" class="pill"></span>
+            <span id="stk-alert" style="margin-left:auto;font-size:12px;color:#b45309;font-weight:700"></span>
+            <button class="btn btn-ghost btn-sm" id="stk-sync" style="margin-left:10px">Importer les produits connus</button>
+          </div>
+          <div class="panel-b" style="padding:0;overflow-x:auto">
+            <table class="data" id="stk-table">
+              <thead><tr><th>Réf.</th><th>Désignation</th><th class="tcenter">Entrées</th><th class="tcenter">Sorties</th><th class="tcenter">Reste</th><th class="tright">Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="stk-empty" style="display:none">Aucun produit. Enregistre un mouvement ou importe les produits connus.</div>
+          </div>
         </div>
-        <div class="panel-b" style="padding:0;overflow-x:auto">
-          <table class="data" id="stk-table">
-            <thead><tr><th>Réf.</th><th>Désignation</th><th class="tcenter">Stock</th><th class="tcenter">Mouvement</th><th class="tright">Actions</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <div class="empty" id="stk-empty" style="display:none">Aucun produit en stock. Ajoute-en un à gauche.</div>
+
+        <div class="panel" style="margin-top:16px">
+          <div class="panel-h">Journal des mouvements <span id="mv-count" class="pill"></span>
+            <select id="mv-filter" style="margin-left:auto;max-width:200px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+              <option value="">Tous les produits</option>
+            </select>
+          </div>
+          <div class="panel-b" style="padding:0;overflow-x:auto">
+            <table class="data" id="mv-table">
+              <thead><tr><th>Date</th><th>Produit</th><th class="tcenter">Type</th><th class="tcenter">Qté</th><th>Note</th><th class="tright"></th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty" id="mv-empty" style="display:none">Aucun mouvement enregistré.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -680,7 +716,7 @@
 /* ============================================================
    STOCKAGE
 ============================================================ */
-const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock'};
+const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock', mouv:'bl_mouvements'};
 const HIDE_PRICES = true;   // mode dépôt : masque tout ce qui concerne les prix (mettre false pour réafficher)
 const CONDITIONS_DEFAUT = `La garantie couvre tout défaut de fabrication pendant la durée indiquée à compter de la date d'achat.
 Elle ne couvre pas : les dommages dus à une mauvaise utilisation, une chute, un choc, l'humidité, une surtension électrique, ni l'usure normale.
@@ -735,6 +771,7 @@ function reloadAll(){
   bons     = load(KEY.bon,[]);
   garanties= load(KEY.gar,[]);
   stock    = load(KEY.stock,[]);
+  mouvements = load(KEY.mouv,[]);
   normSettings();
   try{ refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
        renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings(); }catch(e){}
@@ -759,7 +796,8 @@ let products = load(KEY.prod,[]);
 let clients  = load(KEY.cli,[]);
 let bons     = load(KEY.bon,[]);
 let garanties= load(KEY.gar,[]);
-let stock    = load(KEY.stock,[]);   // [{ref,des,qte,seuil}]
+let stock    = load(KEY.stock,[]);   // registre produits [{ref,des,seuil,counted}]
+let mouvements = load(KEY.mouv,[]);  // journal [{id,date,ref,des,type:'entree'|'sortie',qte,note,createdAt}]
 normSettings();
 try{ localStorage.setItem(KEY.set,JSON.stringify(settings)); }catch(e){}
 
@@ -822,7 +860,7 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
   document.getElementById('view-'+t.dataset.view).classList.add('active');
   if(t.dataset.view==='parametres' && typeof renderGdRefSelect==='function') renderGdRefSelect();
   if(t.dataset.view==='garantie' && typeof garProdSelect==='function') garProdSelect();
-  if(t.dataset.view==='stock' && typeof renderStkProdSelect==='function') renderStkProdSelect();
+  if(t.dataset.view==='stock' && typeof renderStock==='function') renderStock();
 }));
 
 /* ============================================================
@@ -2092,100 +2130,169 @@ async function exportSimplePDF(html,fname){
 ============================================================ */
 function stockKey(ref){ return (ref||'').toUpperCase().replace(/\s+/g,''); }
 function findStock(ref){ const k=stockKey(ref); return stock.find(s=>stockKey(s.ref)===k); }
-/* enregistre un produit vu à l'import (quantité 0, « à compter » tant qu'il n'est pas saisi) */
+/* totaux calculés depuis le journal des mouvements */
+function entreesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0); }
+function sortiesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0); }
+function resteFor(ref){ return entreesFor(ref)-sortiesFor(ref); }
+function stkNew(s){ return s.counted===false && entreesFor(s.ref)===0 && sortiesFor(s.ref)===0; }
+function stkLow(s){ return !stkNew(s) && resteFor(s.ref)<=(s.seuil||0); }
+/* crée/complète un produit dans le registre */
+function ensureProduct(ref,des,seuil){
+  const k=stockKey(ref); if(!k) return null;
+  let s=findStock(k);
+  if(!s){ s={ref:k,des:des||k,seuil:(seuil!=null?seuil:5),counted:true}; stock.push(s); }
+  else { if(des) s.des=des; if(seuil!=null) s.seuil=seuil; s.counted=true; }
+  return s;
+}
+/* enregistre un produit vu à l'import (reste 0, « à compter » tant qu'aucun mouvement) */
 function registerStockRef(ref,des){
   const k=stockKey(ref); if(!k) return;
-  if(!stock.some(s=>stockKey(s.ref)===k)){ stock.push({ref:k,des:des||k,qte:0,seuil:5,counted:false}); save(KEY.stock,stock); }
+  if(!stock.some(s=>stockKey(s.ref)===k)){ stock.push({ref:k,des:des||k,seuil:5,counted:false}); save(KEY.stock,stock); }
 }
-function stkLow(s){ return s.counted!==false && (s.qte||0)<=(s.seuil||0); }
-/* remplit la liste déroulante des produits connus (hors ceux déjà en stock) */
+/* migration : convertit l'ancien stock (qte unique) en mouvements d'ouverture, une seule fois */
+function migrateStock(){
+  if(localStorage.getItem(KEY.mouv)!==null) return;
+  stock.forEach(s=>{ const q=parseInt(s.qte); if(q>0){ mouvements.push({id:uid(),date:todayISO(),ref:stockKey(s.ref),des:s.des||s.ref,type:'entree',qte:q,note:'Stock initial (report)',createdAt:Date.now()}); } });
+  save(KEY.mouv,mouvements);
+}
+/* listes déroulantes produits (mouvement + filtre journal) */
 function renderStkProdSelect(){
-  const sel=document.getElementById('stk-prod'); if(!sel) return;
-  sel.innerHTML='<option value="">— choisir ou saisir ci-dessous —</option>'+
-    knownProducts().map((p,i)=>`<option value="${i}">${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('');
+  const prods=knownProducts();
+  const sel=document.getElementById('mv-prod');
+  if(sel){ const cur=sel.value; sel.innerHTML='<option value="">— choisir ou saisir ci-dessous —</option>'+prods.map(p=>`<option value="${esc(p.ref)}">${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join(''); sel.value=cur; }
+  const flt=document.getElementById('mv-filter');
+  if(flt){ const cur=flt.value; flt.innerHTML='<option value="">Tous les produits</option>'+prods.map(p=>`<option value="${esc(p.ref)}">${esc(p.ref)}</option>`).join(''); flt.value=cur; }
 }
-document.getElementById('stk-prod').addEventListener('change',e=>{
-  const i=e.target.value; if(i==='') return;
-  const p=knownProducts()[i]; if(!p) return;
-  document.getElementById('stk-ref').value=p.ref||'';
-  document.getElementById('stk-des').value=p.des||'';
-  const ex=findStock(p.ref);
-  if(ex){ document.getElementById('stk-qte').value=ex.qte; document.getElementById('stk-seuil').value=ex.seuil; }
+document.getElementById('mv-prod').addEventListener('change',e=>{
+  const ref=e.target.value; if(!ref) return;
+  const p=knownProducts().find(x=>stockKey(x.ref)===stockKey(ref));
+  document.getElementById('mv-ref').value=ref;
+  document.getElementById('mv-des').value=p?(p.des||''):'';
+  const s=findStock(ref); if(s) document.getElementById('mv-seuil').value=s.seuil!=null?s.seuil:5;
 });
-document.getElementById('stk-save').addEventListener('click',()=>{
-  const ref=document.getElementById('stk-ref').value.trim();
+document.getElementById('mv-save').addEventListener('click',()=>{
+  const ref=document.getElementById('mv-ref').value.trim();
   if(!ref){ toast('Indique une référence',true); return; }
-  const des=document.getElementById('stk-des').value.trim();
-  const qte=parseInt(document.getElementById('stk-qte').value)||0;
-  const seuil=parseInt(document.getElementById('stk-seuil').value)||0;
-  const ex=findStock(ref);
-  if(ex){ ex.des=des||ex.des; ex.qte=qte; ex.seuil=seuil; ex.counted=true; } else stock.push({ref,des:des||ref,qte,seuil,counted:true});
-  save(KEY.stock,stock); renderStock(); stkResetForm();
-  toast('Stock enregistré ✓');
+  const des=document.getElementById('mv-des').value.trim();
+  const type=document.getElementById('mv-type').value;
+  const qte=parseInt(document.getElementById('mv-qte').value)||0;
+  if(qte<=0){ toast('Quantité invalide',true); return; }
+  const date=document.getElementById('mv-date').value||todayISO();
+  const seuilRaw=document.getElementById('mv-seuil').value; const seuil=seuilRaw===''?undefined:(parseInt(seuilRaw)||0);
+  const note=document.getElementById('mv-note').value.trim();
+  if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
+  ensureProduct(ref,des,seuil);
+  mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,createdAt:Date.now()});
+  save(KEY.mouv,mouvements); save(KEY.stock,stock);
+  mvResetForm(); renderStock();
+  toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' enregistrée ✓');
 });
+function mvResetForm(){
+  document.getElementById('mv-prod').value='';
+  document.getElementById('mv-ref').value='';
+  document.getElementById('mv-des').value='';
+  document.getElementById('mv-qte').value=1;
+  document.getElementById('mv-note').value='';
+}
 document.getElementById('stk-sync').addEventListener('click',()=>{
   let n=0; knownProducts().forEach(p=>{ if(!findStock(p.ref)){ registerStockRef(p.ref,p.des); n++; } });
   renderStock();
   toast(n?(n+' produit(s) ajouté(s) au stock ✓'):'Tous les produits connus sont déjà dans le stock');
 });
-document.getElementById('stk-cancel').addEventListener('click',stkResetForm);
-function stkResetForm(){
-  document.getElementById('stk-prod').value='';
-  document.getElementById('stk-ref').value='';
-  document.getElementById('stk-des').value='';
-  document.getElementById('stk-qte').value=0;
-  document.getElementById('stk-seuil').value=5;
-  document.getElementById('stk-form-title').textContent='Ajouter / mettre à jour un produit';
-  document.getElementById('stk-cancel').style.display='none';
+/* ajustement rapide +1 / −1 (enregistre un mouvement du jour) */
+function stkMove(ref,delta){
+  if(delta<0 && resteFor(ref)<=0){ toast('Le reste est déjà à 0',true); return; }
+  const type=delta>0?'entree':'sortie';
+  const s=ensureProduct(ref);
+  mouvements.unshift({id:uid(),date:todayISO(),ref:stockKey(ref),des:(s&&s.des)||ref,type,qte:1,note:'Ajustement rapide',createdAt:Date.now()});
+  save(KEY.mouv,mouvements); save(KEY.stock,stock); renderStock();
+}
+function stkEditSeuil(ref){
+  const s=findStock(ref); if(!s) return;
+  const v=prompt('Seuil d\'alerte pour '+s.ref+' (alerte quand le reste descend à ce niveau) :', s.seuil!=null?s.seuil:5);
+  if(v===null) return;
+  s.seuil=parseInt(v)||0; s.counted=true; save(KEY.stock,stock); renderStock();
 }
 function renderStock(){
   const tb=document.querySelector('#stk-table tbody'); if(!tb) return;
+  renderStkProdSelect();
   document.getElementById('stk-count').textContent=stock.length;
   document.getElementById('stk-empty').style.display=stock.length?'none':'block';
   document.getElementById('stk-table').style.display=stock.length?'table':'none';
   const low=stock.filter(stkLow).length;
-  const aCompter=stock.filter(s=>s.counted===false).length;
+  const aCompter=stock.filter(stkNew).length;
   const parts=[]; if(low) parts.push('⚠ '+low+' en stock bas'); if(aCompter) parts.push('○ '+aCompter+' à compter');
   document.getElementById('stk-alert').textContent=parts.join('  ·  ');
-  const list=stock.slice().sort((a,b)=>(a.counted===false?-1:0)-(b.counted===false?-1:0) || (a.qte||0)-(b.qte||0));
+  const list=stock.slice().sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
   tb.innerHTML=list.map(s=>{
-    const lowRow=stkLow(s), neuf=s.counted===false;
-    const bg = neuf?' style="background:#f1f5f9"' : (lowRow?' style="background:#fff7ed"':'');
-    let badge;
-    if(neuf) badge='<span class="cmd-badge" style="background:#e2e8f0;color:#475569">à compter</span>';
-    else badge='<span class="cmd-badge" style="'+(lowRow?'background:#fee2e2;color:#b91c1c':'')+'">'+(s.qte||0)+'</span>'+(lowRow?' <span style="color:#b91c1c;font-size:10px;font-weight:700">bas</span>':'');
+    const E=entreesFor(s.ref), S=sortiesFor(s.ref), R=E-S, neuf=stkNew(s), lowRow=stkLow(s);
+    const bg=neuf?' style="background:#f1f5f9"':(lowRow?' style="background:#fff7ed"':'');
+    const resteBadge = neuf?'<span class="cmd-badge" style="background:#e2e8f0;color:#475569">à compter</span>'
+      : '<span class="cmd-badge" style="'+(lowRow?'background:#fee2e2;color:#b91c1c':'')+'">'+R+'</span>'+(lowRow?' <span style="color:#b91c1c;font-size:10px;font-weight:700">bas</span>':'');
     return `<tr${bg}>
       <td style="font-weight:600">${esc(s.ref)}</td>
       <td>${esc(s.des)||'—'}</td>
-      <td class="tcenter">${badge}</td>
-      <td class="tcenter" style="white-space:nowrap">
-        <button class="btn btn-ghost btn-sm" data-minus="${esc(s.ref)}">−</button>
-        <button class="btn btn-ghost btn-sm" data-plus="${esc(s.ref)}">+</button>
-      </td>
+      <td class="tcenter" style="color:#0b7a70;font-weight:600">${E}</td>
+      <td class="tcenter" style="color:#b91c1c;font-weight:600">${S}</td>
+      <td class="tcenter">${resteBadge}</td>
       <td class="tright" style="white-space:nowrap">
-        <button class="btn btn-ghost btn-sm" data-edit="${esc(s.ref)}">Modifier</button>
+        <button class="btn btn-ghost btn-sm" data-minus="${esc(s.ref)}" title="Sortie 1">−</button>
+        <button class="btn btn-ghost btn-sm" data-plus="${esc(s.ref)}" title="Entrée 1">+</button>
+        <button class="btn btn-ghost btn-sm" data-seuil="${esc(s.ref)}">Seuil</button>
         <button class="btn btn-danger btn-sm" data-del="${esc(s.ref)}">Suppr.</button>
       </td></tr>`;}).join('');
   tb.querySelectorAll('[data-plus]').forEach(b=>b.onclick=()=>stkMove(b.dataset.plus,1));
   tb.querySelectorAll('[data-minus]').forEach(b=>b.onclick=()=>stkMove(b.dataset.minus,-1));
-  tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>stkEdit(b.dataset.edit));
-  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit du stock ?')){ stock=stock.filter(x=>stockKey(x.ref)!==stockKey(b.dataset.del)); save(KEY.stock,stock); renderStock(); } });
+  tb.querySelectorAll('[data-seuil]').forEach(b=>b.onclick=()=>stkEditSeuil(b.dataset.seuil));
+  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); renderStock(); } });
+  renderMouvements(); renderBilan();
 }
-function stkMove(ref,delta){ const s=findStock(ref); if(!s) return; s.qte=Math.max(0,(s.qte||0)+delta); s.counted=true; save(KEY.stock,stock); renderStock(); }
-function stkEdit(ref){
-  const s=findStock(ref); if(!s) return;
-  document.getElementById('stk-ref').value=s.ref;
-  document.getElementById('stk-des').value=s.des||'';
-  document.getElementById('stk-qte').value=s.qte||0;
-  document.getElementById('stk-seuil').value=s.seuil||0;
-  document.getElementById('stk-form-title').textContent='Modifier : '+s.ref;
-  document.getElementById('stk-cancel').style.display='inline-flex';
-  window.scrollTo({top:0,behavior:'smooth'});
+/* journal des mouvements */
+function renderMouvements(){
+  const tb=document.querySelector('#mv-table tbody'); if(!tb) return;
+  const filt=document.getElementById('mv-filter').value;
+  let list=mouvements.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||0)-(a.createdAt||0));
+  if(filt) list=list.filter(m=>stockKey(m.ref)===stockKey(filt));
+  document.getElementById('mv-count').textContent=list.length;
+  document.getElementById('mv-empty').style.display=list.length?'none':'block';
+  document.getElementById('mv-table').style.display=list.length?'table':'none';
+  tb.innerHTML=list.slice(0,300).map(m=>{
+    const ent=m.type==='entree';
+    return `<tr>
+      <td style="white-space:nowrap">${frDate(m.date)}</td>
+      <td><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
+      <td class="tcenter"><span class="cmd-badge" style="background:${ent?'#e6f5f3':'#fee2e2'};color:${ent?'#0b7a70':'#b91c1c'}">${ent?'Entrée':'Sortie'}</span></td>
+      <td class="tcenter" style="font-weight:700;color:${ent?'#0b7a70':'#b91c1c'}">${ent?'+':'−'}${m.qte}</td>
+      <td style="font-size:12px;color:var(--muted)">${esc(m.note||'')}</td>
+      <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td>
+    </tr>`;}).join('');
+  tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); renderStock(); } });
 }
+document.getElementById('mv-filter').addEventListener('change',renderMouvements);
+/* bilan du jour */
+function renderBilan(){
+  const el=document.getElementById('mv-bilan'); if(!el) return;
+  const d=document.getElementById('mv-jour').value||todayISO();
+  const day=mouvements.filter(m=>m.date===d);
+  const E=day.filter(m=>m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0);
+  const S=day.filter(m=>m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0);
+  const byRef={};
+  day.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:k,e:0,s:0}; if(m.type==='entree')byRef[k].e+=+m.qte||0; else byRef[k].s+=+m.qte||0; });
+  const rows=Object.values(byRef).sort((a,b)=>(b.e+b.s)-(a.e+a.s)).map(r=>`<div style="display:grid;grid-template-columns:1fr 54px 54px;gap:6px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px;align-items:center"><div style="font-weight:600">${esc(r.ref)}</div><div class="tcenter" style="color:#0b7a70;font-weight:600">+${r.e}</div><div class="tcenter" style="color:#b91c1c;font-weight:600">−${r.s}</div></div>`).join('');
+  el.innerHTML=`
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <div style="flex:1;background:#e6f5f3;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:#0b7a70;font-weight:700">ENTRÉES</div><div style="font-size:24px;font-weight:800;color:#0b7a70">${E}</div></div>
+      <div style="flex:1;background:#fee2e2;border-radius:8px;padding:10px;text-align:center"><div style="font-size:11px;color:#b91c1c;font-weight:700">SORTIES</div><div style="font-size:24px;font-weight:800;color:#b91c1c">${S}</div></div>
+    </div>
+    ${rows?`<div style="display:grid;grid-template-columns:1fr 54px 54px;gap:6px;font-size:10px;text-transform:uppercase;color:var(--muted);font-weight:700;padding-bottom:4px;border-bottom:1px solid var(--line)"><div>Référence</div><div class="tcenter">Ent.</div><div class="tcenter">Sort.</div></div>${rows}`:'<div class="empty" style="padding:6px">Aucun mouvement ce jour.</div>'}`;
+}
+document.getElementById('mv-jour').addEventListener('change',renderBilan);
 
 /* ============================================================
    INIT
 ============================================================ */
+/* stock : dates par défaut (la migration tourne après la synchro cloud) */
+try{ document.getElementById('mv-date').value=todayISO(); document.getElementById('mv-jour').value=todayISO(); }catch(e){}
 refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
 renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings();
 if(HIDE_PRICES){
@@ -2213,10 +2320,12 @@ garReset();
 
 /* ---------- Démarrage de la synchro en ligne ---------- */
 (async function cloudInit(){
-  if(!supa){ setCloudStatus(false); return; }
+  if(!supa){ setCloudStatus(false); migrateStock(); renderStock(); return; }
   setCloudStatus(false);
   const ok=await cloudPull();          // récupère les données en ligne → cache local
   if(ok){ reloadAll(); resetForm(); garReset(); }  // ré-affiche avec les données du cloud
+  migrateStock();                      // convertit l'ancien stock en mouvements (après la synchro)
+  renderStock();
   cloudSubscribe();                    // écoute les changements des autres appareils
 })();
 </script>
