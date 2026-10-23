@@ -2281,13 +2281,17 @@ function bilanDocHTML(d){
   const day=mouvements.filter(m=>m.date===d);
   const E=day.filter(m=>m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0);
   const S=day.filter(m=>m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0);
-  const byRef={};
-  day.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:k,des:m.des||'',e:0,s:0}; if(m.type==='entree')byRef[k].e+=+m.qte||0; else byRef[k].s+=+m.qte||0; });
-  const list=Object.values(byRef).sort((a,b)=>a.ref.localeCompare(b.ref));
-  const rows=list.map(r=>`<tr>
+  const dayBy={};
+  day.forEach(m=>{ const k=stockKey(m.ref); if(!dayBy[k])dayBy[k]={e:0,s:0}; if(m.type==='entree')dayBy[k].e+=+m.qte||0; else dayBy[k].s+=+m.qte||0; });
+  // tous les produits du stock (+ éventuels produits ayant bougé ce jour mais absents du stock)
+  const refs={};
+  stock.forEach(p=>{ const k=stockKey(p.ref); refs[k]={ref:p.ref,des:p.des||''}; });
+  Object.keys(dayBy).forEach(k=>{ if(!refs[k]) refs[k]={ref:k,des:(day.find(m=>stockKey(m.ref)===k)||{}).des||''}; });
+  const list=Object.values(refs).sort((a,b)=>stockKey(a.ref).localeCompare(stockKey(b.ref)));
+  const rows=list.map(r=>{ const d2=dayBy[stockKey(r.ref)]||{e:0,s:0}; return `<tr>
      <td class="ref">${esc(r.ref)}</td><td>${esc(r.des||(findStock(r.ref)||{}).des||'')}</td>
-     <td class="qte" style="color:#0b7a70">+${r.e}</td><td class="qte" style="color:#b91c1c">−${r.s}</td>
-     <td class="qte"><b>${resteFor(r.ref)}</b></td></tr>`).join('');
+     <td class="qte" style="color:#0b7a70">+${d2.e}</td><td class="qte" style="color:#b91c1c">−${d2.s}</td>
+     <td class="qte"><b>${resteFor(r.ref)}</b></td></tr>`; }).join('');
   let fillers=''; for(let i=list.length;i<10;i++) fillers+='<tr class="filler"><td class="ref"></td><td></td><td></td><td></td><td></td></tr>';
   const ids=[];
   if(settings.ice) ids.push('ICE : '+esc(settings.ice));
