@@ -380,6 +380,30 @@
 
   <!-- =================== STOCK =================== -->
   <div class="view" id="view-stock">
+    <!-- Bon de commande (entrée fournisseur) : pleine largeur -->
+    <div class="panel" style="margin-bottom:16px">
+      <div class="panel-h" style="flex-wrap:wrap">➕ Bon de commande (entrée fournisseur)
+        <button class="btn btn-ghost btn-sm" id="bc-toglist" style="margin-left:auto">Voir les bons enregistrés <span id="bc-count" class="pill"></span></button>
+      </div>
+      <div class="panel-b">
+        <div class="row">
+          <div class="field"><label>Fournisseur</label><input id="bc-four" type="text" placeholder="ex : Fournisseur Casa"></div>
+          <div class="field" style="max-width:120px"><label>N°</label><input id="bc-num" type="text"></div>
+          <div class="field" style="max-width:170px"><label>Date</label><input id="bc-date" type="date"></div>
+        </div>
+        <datalist id="bc-prod-list"></datalist>
+        <div style="overflow-x:auto">
+          <table class="data" id="bc-lines">
+            <thead><tr><th style="width:150px">Référence</th><th>Désignation</th><th class="tcenter" style="width:100px">Quantité</th><th class="tright" style="width:44px"></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
+        <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
+        <div class="hint" style="margin-top:8px">Valider ajoute toutes les lignes au stock (entrées) et enregistre le bon comme preuve (imprimable en PDF).</div>
+        <div id="bc-list" style="display:none;margin-top:16px"></div>
+      </div>
+    </div>
     <div class="grid-2">
       <!-- Colonne gauche : enregistrer un mouvement + bilan du jour -->
       <div class="form-col">
@@ -397,15 +421,16 @@
               <div class="field"><label>Type</label>
                 <select id="mv-type">
                   <option value="entree">Entrée (+)</option>
+                  <option value="retour">Retour (+)</option>
                   <option value="sortie">Sortie (−)</option>
                 </select>
               </div>
               <div class="field" style="max-width:120px"><label>Quantité</label><input id="mv-qte" type="number" min="1" value="1"></div>
             </div>
             <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
-            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : réassort fournisseur, vente, retour…"></div>
+            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : refus client, casse, correction…"></div>
             <button class="btn btn-primary btn-block" id="mv-save">+ Enregistrer le mouvement</button>
-            <div class="hint" style="margin-top:8px">Choisis un produit pour pré-remplir, ou tape la référence. Le reste se calcule automatiquement.</div>
+            <div class="hint" style="margin-top:8px">Pour un réassort fournisseur, utilise plutôt le <b>Bon de commande</b> en haut. Ici : <b>Retour (+)</b> pour un produit qui revient, <b>Sortie (−)</b> pour une casse/correction.</div>
           </div>
         </div>
 
@@ -720,7 +745,7 @@
 /* ============================================================
    STOCKAGE
 ============================================================ */
-const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock', mouv:'bl_mouvements'};
+const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock', mouv:'bl_mouvements', cmd:'bl_commandes'};
 const HIDE_PRICES = true;   // mode dépôt : masque tout ce qui concerne les prix (mettre false pour réafficher)
 const CONDITIONS_DEFAUT = `La garantie couvre tout défaut de fabrication pendant la durée indiquée à compter de la date d'achat.
 Elle ne couvre pas : les dommages dus à une mauvaise utilisation, une chute, un choc, l'humidité, une surtension électrique, ni l'usure normale.
@@ -776,9 +801,10 @@ function reloadAll(){
   garanties= load(KEY.gar,[]);
   stock    = load(KEY.stock,[]);
   mouvements = load(KEY.mouv,[]);
+  commandes = load(KEY.cmd,[]);
   normSettings();
   try{ refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
-       renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings(); }catch(e){}
+       renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); renderBcProdList(); renderBcList(); fillSettings(); }catch(e){}
 }
 function setCloudStatus(ok){
   cloudOK=ok;
@@ -790,6 +816,7 @@ function normSettings(){
   if(!settings.defaultClient) settings.defaultClient={nom:'SI MOHAMMED',code:'',ville:''};
   if(!settings.nom) settings.nom='TECH HOME';
   if(!settings.garNext) settings.garNext=1;
+  if(!settings.cmdNext) settings.cmdNext=1;
   if(!settings.garConditions) settings.garConditions=CONDITIONS_DEFAUT;
   if(!settings.garDuree) settings.garDuree='1 an';
   if(!settings.garDurees) settings.garDurees={};
@@ -801,7 +828,8 @@ let clients  = load(KEY.cli,[]);
 let bons     = load(KEY.bon,[]);
 let garanties= load(KEY.gar,[]);
 let stock    = load(KEY.stock,[]);   // registre produits [{ref,des}]
-let mouvements = load(KEY.mouv,[]);  // journal [{id,date,ref,des,type:'entree'|'sortie',qte,note,createdAt}]
+let mouvements = load(KEY.mouv,[]);  // journal [{id,date,ref,des,type:'entree'|'sortie',qte,note,motif,cmdNum,cmdId,createdAt}]
+let commandes = load(KEY.cmd,[]);    // bons de commande [{id,num,date,fournisseur,lignes:[{ref,des,qte}],createdAt}]
 normSettings();
 try{ localStorage.setItem(KEY.set,JSON.stringify(settings)); }catch(e){}
 
@@ -2175,17 +2203,20 @@ document.getElementById('mv-save').addEventListener('click',()=>{
   const ref=document.getElementById('mv-ref').value.trim();
   if(!ref){ toast('Indique une référence',true); return; }
   const des=document.getElementById('mv-des').value.trim();
-  const type=document.getElementById('mv-type').value;
+  const sel=document.getElementById('mv-type').value;       // entree | retour | sortie
+  const type=(sel==='sortie')?'sortie':'entree';            // un retour est une entrée en stock
+  const motif=(sel==='retour')?'retour':(sel==='sortie'?'':'manuel');
   const qte=parseInt(document.getElementById('mv-qte').value)||0;
   if(qte<=0){ toast('Quantité invalide',true); return; }
   const date=document.getElementById('mv-date').value||todayISO();
   const note=document.getElementById('mv-note').value.trim();
   if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
   ensureProduct(ref,des);
-  mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,createdAt:Date.now()});
+  mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,motif,createdAt:Date.now()});
   save(KEY.mouv,mouvements); save(KEY.stock,stock);
   mvResetForm(); renderStock();
-  toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' enregistrée ✓');
+  const lbl=sel==='retour'?'Retour':(type==='entree'?'Entrée':'Sortie');
+  toast(lbl+' de '+qte+' enregistré'+(sel==='sortie'?'e':'')+' ✓');
 });
 function mvResetForm(){
   document.getElementById('mv-prod').value='';
@@ -2235,6 +2266,13 @@ function renderStock(){
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); renderStock(); } });
   renderMouvements(); renderBilan();
 }
+/* origine lisible d'un mouvement (pour le journal) */
+function mvOrigin(m){
+  const note=esc(m.note||'');
+  if(m.motif==='commande'){ const b='<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">Bon de commande N°'+esc(m.cmdNum||'?')+'</span>'; return b+(note?' '+note:''); }
+  if(m.motif==='retour'){ const b='<span class="cmd-badge" style="background:#fff7ed;color:#b45309">Retour</span>'; return b+(note?' '+note:''); }
+  return note;
+}
 /* journal des mouvements */
 function renderMouvements(){
   const tb=document.querySelector('#mv-table tbody'); if(!tb) return;
@@ -2251,7 +2289,7 @@ function renderMouvements(){
       <td><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
       <td class="tcenter"><span class="cmd-badge" style="background:${ent?'#e6f5f3':'#fee2e2'};color:${ent?'#0b7a70':'#b91c1c'}">${ent?'Entrée':'Sortie'}</span></td>
       <td class="tcenter" style="font-weight:700;color:${ent?'#0b7a70':'#b91c1c'}">${ent?'+':'−'}${m.qte}</td>
-      <td style="font-size:12px;color:var(--muted)">${esc(m.note||'')}</td>
+      <td style="font-size:12px;color:var(--muted)">${mvOrigin(m)}</td>
       <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td>
     </tr>`;}).join('');
   tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); renderStock(); } });
@@ -2275,6 +2313,106 @@ function renderBilan(){
     ${rows?`<div style="display:grid;grid-template-columns:1fr 54px 54px;gap:6px;font-size:10px;text-transform:uppercase;color:var(--muted);font-weight:700;padding-bottom:4px;border-bottom:1px solid var(--line)"><div>Référence</div><div class="tcenter">Ent.</div><div class="tcenter">Sort.</div></div>${rows}`:'<div class="empty" style="padding:6px">Aucun mouvement ce jour.</div>'}`;
 }
 document.getElementById('mv-jour').addEventListener('change',renderBilan);
+
+/* ============================================================
+   BON DE COMMANDE (entrée fournisseur)
+============================================================ */
+const bcBody=()=>document.querySelector('#bc-lines tbody');
+function renderBcProdList(){
+  const dl=document.getElementById('bc-prod-list'); if(!dl) return;
+  dl.innerHTML=knownProducts().map(p=>`<option value="${esc(p.ref)}">${esc(p.des||'')}</option>`).join('');
+}
+function bcLineRow(ref,des,qte){
+  return `<tr>
+    <td><input class="bc-r" list="bc-prod-list" type="text" value="${esc(ref||'')}" placeholder="VT995" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
+    <td><input class="bc-d" type="text" value="${esc(des||'')}" placeholder="Désignation" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
+    <td class="tcenter"><input class="bc-q" type="number" min="1" value="${qte||1}" style="width:80px;padding:6px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
+    <td class="tright"><button class="line-x bc-del" title="Retirer">×</button></td>
+  </tr>`;
+}
+function bcAddLine(ref,des,qte){ const b=bcBody(); if(b) b.insertAdjacentHTML('beforeend',bcLineRow(ref,des,qte)); }
+function bcEnsureLine(){ const b=bcBody(); if(b&&!b.children.length) bcAddLine(); }
+function bcResetForm(){
+  document.getElementById('bc-four').value='';
+  document.getElementById('bc-num').value=settings.cmdNext||1;
+  document.getElementById('bc-date').value=todayISO();
+  const b=bcBody(); if(b){ b.innerHTML=''; bcAddLine(); bcAddLine(); bcAddLine(); }
+}
+function bcCollect(){
+  const out=[];
+  (bcBody()?bcBody().querySelectorAll('tr'):[]).forEach(tr=>{
+    const ref=tr.querySelector('.bc-r').value.trim();
+    const des=tr.querySelector('.bc-d').value.trim();
+    const qte=parseInt(tr.querySelector('.bc-q').value)||0;
+    if(ref&&qte>0) out.push({ref:stockKey(ref),des:des||ref,qte});
+  });
+  return out;
+}
+function bcSave(){
+  const lignes=bcCollect();
+  if(!lignes.length){ toast('Ajoute au moins une ligne (référence + quantité)',true); return; }
+  const num=(document.getElementById('bc-num').value.trim())||String(settings.cmdNext||1);
+  const date=document.getElementById('bc-date').value||todayISO();
+  const fournisseur=document.getElementById('bc-four').value.trim();
+  const cmdId=uid();
+  commandes.unshift({id:cmdId,num,date,fournisseur,lignes,createdAt:Date.now()});
+  lignes.forEach(l=>{ ensureProduct(l.ref,l.des); mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:l.qte,note:'',motif:'commande',cmdNum:num,cmdId,createdAt:Date.now()}); });
+  const n=parseInt(num); if(!isNaN(n) && n>=(settings.cmdNext||1)) settings.cmdNext=n+1;
+  save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
+  bcResetForm(); renderStock(); renderBcList();
+  toast('Bon de commande N°'+num+' validé — '+lignes.length+' ligne(s) en stock ✓');
+}
+function bcDelete(id){
+  const c=commandes.find(x=>x.id===id);
+  if(!confirm('Supprimer le bon de commande'+(c?' N°'+c.num:'')+' ET retirer ses entrées du stock ?')) return;
+  commandes=commandes.filter(x=>x.id!==id);
+  mouvements=mouvements.filter(m=>m.cmdId!==id);
+  save(KEY.cmd,commandes); save(KEY.mouv,mouvements);
+  renderStock(); renderBcList();
+  toast('Bon de commande supprimé ✓');
+}
+function renderBcList(){
+  const cnt=document.getElementById('bc-count'); if(cnt) cnt.textContent=commandes.length||'';
+  const el=document.getElementById('bc-list'); if(!el) return;
+  if(!commandes.length){ el.innerHTML='<div class="empty" style="padding:8px">Aucun bon de commande enregistré.</div>'; return; }
+  el.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:8px">Bons de commande enregistrés</div>'+
+    commandes.map(c=>{ const q=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px"><b>N°${esc(c.num)}</b> · ${frDate(c.date)}${c.fournisseur?' · '+esc(c.fournisseur):''} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${q} u.)</span></div>
+        <button class="btn btn-dark btn-sm" data-bcpdf="${c.id}">📄 PDF</button>
+        <button class="btn btn-danger btn-sm" data-bcdel="${c.id}">Suppr.</button>
+      </div>`; }).join('');
+  el.querySelectorAll('[data-bcpdf]').forEach(b=>b.onclick=()=>{ const c=commandes.find(x=>x.id===b.dataset.bcpdf); if(c) exportSimplePDF(bcDocHTML(c),'BON_COMMANDE_'+c.num); });
+  el.querySelectorAll('[data-bcdel]').forEach(b=>b.onclick=()=>bcDelete(b.dataset.bcdel));
+}
+function bcDocHTML(c){
+  const ids=[]; if(settings.ice) ids.push('ICE : '+esc(settings.ice)); if(settings.if) ids.push('IF : '+esc(settings.if));
+  const rows=c.lignes.map((l,i)=>`<tr><td class="no">${i+1}</td><td class="ref">${esc(l.ref)}</td><td>${esc(l.des||'')}</td><td class="qte">${l.qte}</td></tr>`).join('');
+  let fillers=''; for(let i=c.lignes.length;i<10;i++) fillers+='<tr class="filler"><td class="no"></td><td class="ref"></td><td></td><td class="qte"></td></tr>';
+  const tot=c.lignes.reduce((a,l)=>a+(+l.qte||0),0);
+  return `
+  <div class="dhead"><div class="dhead-l">
+    ${settings.logo?`<img class="d-logo" src="${settings.logo}">`:''}
+    <div class="d-name">${esc(settings.nom)||'TECH HOME'}</div>
+    ${settings.sub?`<div class="d-sub">${esc(settings.sub)}</div>`:''}
+    ${settings.addr?`<div class="d-addr">${esc(settings.addr)}</div>`:''}
+    ${ids.length?`<div class="d-ids">${ids.join(' &nbsp;·&nbsp; ')}</div>`:''}
+  </div></div>
+  <div class="g-title">Bon de commande N°${esc(c.num)}</div>
+  <table class="g-meta">
+    <tr><td class="lab">Fournisseur</td><td>${esc(c.fournisseur)||'—'}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>
+  </table>
+  <table class="items" style="margin-top:12px">
+    <thead><tr><th style="width:34px">N°</th><th style="width:120px">Référence</th><th>Désignation</th><th style="width:80px">Quantité</th></tr></thead>
+    <tbody>${rows}${fillers}</tbody>
+  </table>
+  <div class="tot-wrap" style="justify-content:flex-start;margin-top:12px"><div class="tot-box"><div class="tlab">Total unités</div><div class="tval">${tot}</div></div></div>
+  <div class="sign" style="justify-content:flex-start"><div class="slot"><div class="sline">Réception vérifiée par (nom & signature)</div></div></div>`;
+}
+document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
+document.getElementById('bc-save').addEventListener('click',bcSave);
+document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
+bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
+bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ const tr=e.target.closest('tr'); const d=tr.querySelector('.bc-d'); if(!d.value.trim()){ const p=knownProducts().find(x=>stockKey(x.ref)===stockKey(e.target.value)); if(p) d.value=p.des||''; } } });
 
 /* document imprimable : bilan de stock du jour */
 function bilanDocHTML(d){
@@ -2331,6 +2469,7 @@ document.getElementById('mv-print').addEventListener('click',()=>{
 ============================================================ */
 /* stock : dates par défaut (la migration tourne après la synchro cloud) */
 try{ document.getElementById('mv-date').value=todayISO(); document.getElementById('mv-jour').value=todayISO(); }catch(e){}
+try{ renderBcProdList(); bcResetForm(); renderBcList(); }catch(e){}
 refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
 renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings();
 if(HIDE_PRICES){
@@ -2361,7 +2500,7 @@ garReset();
   if(!supa){ setCloudStatus(false); migrateStock(); renderStock(); return; }
   setCloudStatus(false);
   const ok=await cloudPull();          // récupère les données en ligne → cache local
-  if(ok){ reloadAll(); resetForm(); garReset(); }  // ré-affiche avec les données du cloud
+  if(ok){ reloadAll(); resetForm(); garReset(); try{ bcResetForm(); }catch(e){} }  // ré-affiche avec les données du cloud
   migrateStock();                      // convertit l'ancien stock en mouvements (après la synchro)
   renderStock();
   cloudSubscribe();                    // écoute les changements des autres appareils
