@@ -756,7 +756,7 @@ La présente fiche doit être présentée avec le produit pour tout recours en g
    Le stockage local sert de cache instantané et de secours hors-ligne. */
 const SUPA_URL = 'https://yxvwzvtiymjdtfewlvsf.supabase.co';
 const SUPA_KEY = 'sb_publishable_ONPZ73rS9lW5dVafip8BgA_cYf04UrJ';
-let supa=null, cloudOK=false, lastPush={};
+let supa=null, cloudOK=false, lastPush={}, cloudReady=false;  // cloudReady : bloque toute écriture cloud tant que le 1er chargement n'est pas fini
 try{ if(window.supabase) supa=window.supabase.createClient(SUPA_URL,SUPA_KEY); }catch(e){ supa=null; }
 
 function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch(e){ return def; } }
@@ -765,7 +765,7 @@ function save(k,v){
   cloudPush(k,v);
 }
 function cloudPush(k,v){
-  if(!supa) return;
+  if(!supa || !cloudReady) return;   // sécurité : jamais d'écriture avant d'avoir chargé les données en ligne
   lastPush[k]=Date.now();
   supa.from('crm_data').upsert({key:k,value:v,updated_at:new Date().toISOString()})
     .then(({error})=>{ setCloudStatus(!error); })
@@ -2497,9 +2497,10 @@ garReset();
 
 /* ---------- Démarrage de la synchro en ligne ---------- */
 (async function cloudInit(){
-  if(!supa){ setCloudStatus(false); migrateStock(); renderStock(); return; }
+  if(!supa){ setCloudStatus(false); cloudReady=true; migrateStock(); renderStock(); return; }
   setCloudStatus(false);
   const ok=await cloudPull();          // récupère les données en ligne → cache local
+  cloudReady=true;                     // à partir d'ici seulement, les écritures vers le cloud sont autorisées
   if(ok){ reloadAll(); resetForm(); garReset(); try{ bcResetForm(); }catch(e){} }  // ré-affiche avec les données du cloud
   migrateStock();                      // convertit l'ancien stock en mouvements (après la synchro)
   renderStock();
