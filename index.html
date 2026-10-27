@@ -380,27 +380,31 @@
 
   <!-- =================== STOCK =================== -->
   <div class="view" id="view-stock">
-    <!-- Bon de commande (entrée fournisseur) : pleine largeur -->
+    <!-- Entrée en stock par document : Bon de commande OU Retour : pleine largeur -->
     <div class="panel" style="margin-bottom:16px">
-      <div class="panel-h" style="flex-wrap:wrap">➕ Bon de commande (entrée fournisseur)
-        <button class="btn btn-ghost btn-sm" id="bc-toglist" style="margin-left:auto">Voir les bons enregistrés <span id="bc-count" class="pill"></span></button>
+      <div class="panel-h" style="flex-wrap:wrap"><span id="bc-title">➕ Bon de commande (entrée en stock)</span>
+        <button class="btn btn-ghost btn-sm" id="bc-toglist" style="margin-left:auto">Voir les documents enregistrés <span id="bc-count" class="pill"></span></button>
       </div>
       <div class="panel-b">
         <div class="row">
-          <div class="field"><label>Fournisseur</label><input id="bc-four" type="text" placeholder="ex : Fournisseur Casa"></div>
+          <div class="field"><label>Type de document</label>
+            <select id="bc-kind">
+              <option value="commande">Bon de commande (réassort magasin)</option>
+              <option value="retour">Retour (produit qui revient)</option>
+            </select>
+          </div>
           <div class="field" style="max-width:120px"><label>N°</label><input id="bc-num" type="text"></div>
           <div class="field" style="max-width:170px"><label>Date</label><input id="bc-date" type="date"></div>
         </div>
-        <datalist id="bc-prod-list"></datalist>
         <div style="overflow-x:auto">
           <table class="data" id="bc-lines">
-            <thead><tr><th style="width:150px">Référence</th><th>Désignation</th><th class="tcenter" style="width:100px">Quantité</th><th class="tright" style="width:44px"></th></tr></thead>
+            <thead><tr><th style="width:240px">Produit</th><th>Désignation</th><th class="tcenter" style="width:100px">Quantité</th><th class="tright" style="width:44px"></th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
         <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
         <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
-        <div class="hint" style="margin-top:8px">Valider ajoute toutes les lignes au stock (entrées) et enregistre le bon comme preuve (imprimable en PDF).</div>
+        <div class="hint" style="margin-top:8px">Choisis le produit : la désignation se remplit toute seule. Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
         <div id="bc-list" style="display:none;margin-top:16px"></div>
       </div>
     </div>
@@ -421,16 +425,15 @@
               <div class="field"><label>Type</label>
                 <select id="mv-type">
                   <option value="entree">Entrée (+)</option>
-                  <option value="retour">Retour (+)</option>
                   <option value="sortie">Sortie (−)</option>
                 </select>
               </div>
               <div class="field" style="max-width:120px"><label>Quantité</label><input id="mv-qte" type="number" min="1" value="1"></div>
             </div>
             <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
-            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : refus client, casse, correction…"></div>
+            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : casse, perte, correction…"></div>
             <button class="btn btn-primary btn-block" id="mv-save">+ Enregistrer le mouvement</button>
-            <div class="hint" style="margin-top:8px">Pour un réassort fournisseur, utilise plutôt le <b>Bon de commande</b> en haut. Ici : <b>Retour (+)</b> pour un produit qui revient, <b>Sortie (−)</b> pour une casse/correction.</div>
+            <div class="hint" style="margin-top:8px">Les réassorts et les retours se font en haut (<b>Bon de commande / Retour</b>). Ici : corrections manuelles ponctuelles (ex : <b>Sortie</b> pour une casse).</div>
           </div>
         </div>
 
@@ -817,6 +820,7 @@ function normSettings(){
   if(!settings.nom) settings.nom='TECH HOME';
   if(!settings.garNext) settings.garNext=1;
   if(!settings.cmdNext) settings.cmdNext=1;
+  if(!settings.retNext) settings.retNext=1;
   if(!settings.garConditions) settings.garConditions=CONDITIONS_DEFAUT;
   if(!settings.garDuree) settings.garDuree='1 an';
   if(!settings.garDurees) settings.garDurees={};
@@ -2203,9 +2207,8 @@ document.getElementById('mv-save').addEventListener('click',()=>{
   const ref=document.getElementById('mv-ref').value.trim();
   if(!ref){ toast('Indique une référence',true); return; }
   const des=document.getElementById('mv-des').value.trim();
-  const sel=document.getElementById('mv-type').value;       // entree | retour | sortie
-  const type=(sel==='sortie')?'sortie':'entree';            // un retour est une entrée en stock
-  const motif=(sel==='retour')?'retour':(sel==='sortie'?'':'manuel');
+  const type=document.getElementById('mv-type').value;      // entree | sortie
+  const motif=type==='entree'?'manuel':'';
   const qte=parseInt(document.getElementById('mv-qte').value)||0;
   if(qte<=0){ toast('Quantité invalide',true); return; }
   const date=document.getElementById('mv-date').value||todayISO();
@@ -2215,8 +2218,7 @@ document.getElementById('mv-save').addEventListener('click',()=>{
   mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,motif,createdAt:Date.now()});
   save(KEY.mouv,mouvements); save(KEY.stock,stock);
   mvResetForm(); renderStock();
-  const lbl=sel==='retour'?'Retour':(type==='entree'?'Entrée':'Sortie');
-  toast(lbl+' de '+qte+' enregistré'+(sel==='sortie'?'e':'')+' ✓');
+  toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' enregistrée ✓');
 });
 function mvResetForm(){
   document.getElementById('mv-prod').value='';
@@ -2270,7 +2272,7 @@ function renderStock(){
 function mvOrigin(m){
   const note=esc(m.note||'');
   if(m.motif==='commande'){ const b='<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">Bon de commande N°'+esc(m.cmdNum||'?')+'</span>'; return b+(note?' '+note:''); }
-  if(m.motif==='retour'){ const b='<span class="cmd-badge" style="background:#fff7ed;color:#b45309">Retour</span>'; return b+(note?' '+note:''); }
+  if(m.motif==='retour'){ const b='<span class="cmd-badge" style="background:#fff7ed;color:#b45309">Retour'+(m.cmdNum?' N°'+esc(m.cmdNum):'')+'</span>'; return b+(note?' '+note:''); }
   return note;
 }
 /* journal des mouvements */
@@ -2318,25 +2320,47 @@ document.getElementById('mv-jour').addEventListener('change',renderBilan);
    BON DE COMMANDE (entrée fournisseur)
 ============================================================ */
 const bcBody=()=>document.querySelector('#bc-lines tbody');
+const bcKind=()=>{ const s=document.getElementById('bc-kind'); return (s&&s.value==='retour')?'retour':'commande'; };
+const bcCurNext=()=>bcKind()==='retour'?(settings.retNext||1):(settings.cmdNext||1);
+/* produits sélectionnables = catalogue/bons/garanties + registre du stock (dédupliqués) */
+function bcProducts(){
+  const map={};
+  const add=(ref,des)=>{ const k=stockKey(ref); if(!k) return; if(!map[k]) map[k]={ref:k,des:des||''}; else if(des&&!map[k].des) map[k].des=des; };
+  knownProducts().forEach(p=>add(p.ref,p.des));
+  (stock||[]).forEach(s=>add(s.ref,s.des));
+  return Object.values(map).sort((a,b)=>a.ref.localeCompare(b.ref));
+}
+function bcProdDes(ref){ const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref)); return p?(p.des||''):''; }
+/* options du menu produit d'une ligne (pré-enregistrés) */
+function bcProdOptions(selRef){
+  return '<option value="">— choisir un produit —</option>'+
+    bcProducts().map(p=>`<option value="${esc(p.ref)}"${stockKey(selRef)===stockKey(p.ref)?' selected':''}>${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('');
+}
+/* rafraîchit les menus produits des lignes existantes (en gardant la sélection) */
 function renderBcProdList(){
-  const dl=document.getElementById('bc-prod-list'); if(!dl) return;
-  dl.innerHTML=knownProducts().map(p=>`<option value="${esc(p.ref)}">${esc(p.des||'')}</option>`).join('');
+  (bcBody()?bcBody().querySelectorAll('.bc-r'):[]).forEach(sel=>{ const cur=sel.value; sel.innerHTML=bcProdOptions(cur); sel.value=cur; });
 }
 function bcLineRow(ref,des,qte){
   return `<tr>
-    <td><input class="bc-r" list="bc-prod-list" type="text" value="${esc(ref||'')}" placeholder="VT995" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
-    <td><input class="bc-d" type="text" value="${esc(des||'')}" placeholder="Désignation" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
+    <td><select class="bc-r" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">${bcProdOptions(ref)}</select></td>
+    <td><input class="bc-d" type="text" value="${esc(des||'')}" readonly placeholder="(automatique)" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;background:#f8fafc;color:#475569"></td>
     <td class="tcenter"><input class="bc-q" type="number" min="1" value="${qte||1}" style="width:80px;padding:6px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
     <td class="tright"><button class="line-x bc-del" title="Retirer">×</button></td>
   </tr>`;
 }
 function bcAddLine(ref,des,qte){ const b=bcBody(); if(b) b.insertAdjacentHTML('beforeend',bcLineRow(ref,des,qte)); }
 function bcEnsureLine(){ const b=bcBody(); if(b&&!b.children.length) bcAddLine(); }
+/* met à jour titre / bouton / N° selon le type de document choisi */
+function bcSyncKindUI(){
+  const ret=bcKind()==='retour';
+  const t=document.getElementById('bc-title'); if(t) t.textContent=ret?'↩️ Bon de retour (entrée en stock)':'➕ Bon de commande (entrée en stock)';
+  const s=document.getElementById('bc-save'); if(s) s.textContent=ret?'✓ Valider le retour → entrée en stock':'✓ Valider le bon → entrée en stock';
+  const n=document.getElementById('bc-num'); if(n) n.value=bcCurNext();
+}
 function bcResetForm(){
-  document.getElementById('bc-four').value='';
-  document.getElementById('bc-num').value=settings.cmdNext||1;
   document.getElementById('bc-date').value=todayISO();
   const b=bcBody(); if(b){ b.innerHTML=''; bcAddLine(); bcAddLine(); bcAddLine(); }
+  bcSyncKindUI();
 }
 function bcCollect(){
   const out=[];
@@ -2350,45 +2374,54 @@ function bcCollect(){
 }
 function bcSave(){
   const lignes=bcCollect();
-  if(!lignes.length){ toast('Ajoute au moins une ligne (référence + quantité)',true); return; }
-  const num=(document.getElementById('bc-num').value.trim())||String(settings.cmdNext||1);
+  if(!lignes.length){ toast('Choisis au moins un produit avec une quantité',true); return; }
+  const kind=bcKind();
+  const num=(document.getElementById('bc-num').value.trim())||String(bcCurNext());
   const date=document.getElementById('bc-date').value||todayISO();
-  const fournisseur=document.getElementById('bc-four').value.trim();
-  const cmdId=uid();
-  commandes.unshift({id:cmdId,num,date,fournisseur,lignes,createdAt:Date.now()});
-  lignes.forEach(l=>{ ensureProduct(l.ref,l.des); mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:l.qte,note:'',motif:'commande',cmdNum:num,cmdId,createdAt:Date.now()}); });
-  const n=parseInt(num); if(!isNaN(n) && n>=(settings.cmdNext||1)) settings.cmdNext=n+1;
+  const fournisseur=kind==='commande'?'Magasin':'';
+  const docId=uid();
+  commandes.unshift({id:docId,kind,num,date,fournisseur,lignes,createdAt:Date.now()});
+  lignes.forEach(l=>{ ensureProduct(l.ref,l.des); mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:l.qte,note:'',motif:kind,cmdNum:num,cmdId:docId,createdAt:Date.now()}); });
+  const n=parseInt(num);
+  if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
+  else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
   bcResetForm(); renderStock(); renderBcList();
-  toast('Bon de commande N°'+num+' validé — '+lignes.length+' ligne(s) en stock ✓');
+  toast((kind==='retour'?'Retour N°':'Bon de commande N°')+num+' validé — '+lignes.length+' ligne(s) en stock ✓');
 }
 function bcDelete(id){
-  const c=commandes.find(x=>x.id===id);
-  if(!confirm('Supprimer le bon de commande'+(c?' N°'+c.num:'')+' ET retirer ses entrées du stock ?')) return;
+  const c=commandes.find(x=>x.id===id); const isRet=c&&c.kind==='retour';
+  if(!confirm('Supprimer ce '+(isRet?'retour':'bon de commande')+(c?' N°'+c.num:'')+' ET retirer ses entrées du stock ?')) return;
   commandes=commandes.filter(x=>x.id!==id);
   mouvements=mouvements.filter(m=>m.cmdId!==id);
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements);
   renderStock(); renderBcList();
-  toast('Bon de commande supprimé ✓');
+  toast('Document supprimé ✓');
 }
 function renderBcList(){
   const cnt=document.getElementById('bc-count'); if(cnt) cnt.textContent=commandes.length||'';
   const el=document.getElementById('bc-list'); if(!el) return;
-  if(!commandes.length){ el.innerHTML='<div class="empty" style="padding:8px">Aucun bon de commande enregistré.</div>'; return; }
-  el.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:8px">Bons de commande enregistrés</div>'+
-    commandes.map(c=>{ const q=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
-        <div style="flex:1;min-width:180px"><b>N°${esc(c.num)}</b> · ${frDate(c.date)}${c.fournisseur?' · '+esc(c.fournisseur):''} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${q} u.)</span></div>
+  if(!commandes.length){ el.innerHTML='<div class="empty" style="padding:8px">Aucun document enregistré.</div>'; return; }
+  el.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:8px">Documents enregistrés</div>'+
+    commandes.map(c=>{ const q=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); const isRet=c.kind==='retour';
+      const badge='<span class="cmd-badge" style="background:'+(isRet?'#fff7ed;color:#b45309':'#e6f5f3;color:#0b7a70')+'">'+(isRet?'Retour':'Bon')+' N°'+esc(c.num)+'</span>';
+      return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
+        <div style="flex:1;min-width:180px">${badge} · ${frDate(c.date)} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${q} u.)</span></div>
         <button class="btn btn-dark btn-sm" data-bcpdf="${c.id}">📄 PDF</button>
         <button class="btn btn-danger btn-sm" data-bcdel="${c.id}">Suppr.</button>
       </div>`; }).join('');
-  el.querySelectorAll('[data-bcpdf]').forEach(b=>b.onclick=()=>{ const c=commandes.find(x=>x.id===b.dataset.bcpdf); if(c) exportSimplePDF(bcDocHTML(c),'BON_COMMANDE_'+c.num); });
+  el.querySelectorAll('[data-bcpdf]').forEach(b=>b.onclick=()=>{ const c=commandes.find(x=>x.id===b.dataset.bcpdf); if(c) exportSimplePDF(bcDocHTML(c),(c.kind==='retour'?'RETOUR_':'BON_COMMANDE_')+c.num); });
   el.querySelectorAll('[data-bcdel]').forEach(b=>b.onclick=()=>bcDelete(b.dataset.bcdel));
 }
 function bcDocHTML(c){
+  const isRet=c.kind==='retour';
   const ids=[]; if(settings.ice) ids.push('ICE : '+esc(settings.ice)); if(settings.if) ids.push('IF : '+esc(settings.if));
   const rows=c.lignes.map((l,i)=>`<tr><td class="no">${i+1}</td><td class="ref">${esc(l.ref)}</td><td>${esc(l.des||'')}</td><td class="qte">${l.qte}</td></tr>`).join('');
   let fillers=''; for(let i=c.lignes.length;i<10;i++) fillers+='<tr class="filler"><td class="no"></td><td class="ref"></td><td></td><td class="qte"></td></tr>';
   const tot=c.lignes.reduce((a,l)=>a+(+l.qte||0),0);
+  const metaRow=isRet
+    ? `<tr><td class="lab">Type</td><td>Retour en stock</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`
+    : `<tr><td class="lab">Fournisseur</td><td>${esc(c.fournisseur)||'Magasin'}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`;
   return `
   <div class="dhead"><div class="dhead-l">
     ${settings.logo?`<img class="d-logo" src="${settings.logo}">`:''}
@@ -2397,22 +2430,21 @@ function bcDocHTML(c){
     ${settings.addr?`<div class="d-addr">${esc(settings.addr)}</div>`:''}
     ${ids.length?`<div class="d-ids">${ids.join(' &nbsp;·&nbsp; ')}</div>`:''}
   </div></div>
-  <div class="g-title">Bon de commande N°${esc(c.num)}</div>
-  <table class="g-meta">
-    <tr><td class="lab">Fournisseur</td><td>${esc(c.fournisseur)||'—'}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>
-  </table>
+  <div class="g-title">${isRet?'Bon de retour':'Bon de commande'} N°${esc(c.num)}</div>
+  <table class="g-meta">${metaRow}</table>
   <table class="items" style="margin-top:12px">
     <thead><tr><th style="width:34px">N°</th><th style="width:120px">Référence</th><th>Désignation</th><th style="width:80px">Quantité</th></tr></thead>
     <tbody>${rows}${fillers}</tbody>
   </table>
   <div class="tot-wrap" style="justify-content:flex-start;margin-top:12px"><div class="tot-box"><div class="tlab">Total unités</div><div class="tval">${tot}</div></div></div>
-  <div class="sign" style="justify-content:flex-start"><div class="slot"><div class="sline">Réception vérifiée par (nom & signature)</div></div></div>`;
+  <div class="sign" style="justify-content:flex-start"><div class="slot"><div class="sline">${isRet?'Retour réceptionné par (nom & signature)':'Réception vérifiée par (nom & signature)'}</div></div></div>`;
 }
 document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
 document.getElementById('bc-save').addEventListener('click',bcSave);
+document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
 bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
-bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ const tr=e.target.closest('tr'); const d=tr.querySelector('.bc-d'); if(!d.value.trim()){ const p=knownProducts().find(x=>stockKey(x.ref)===stockKey(e.target.value)); if(p) d.value=p.des||''; } } });
+bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ e.target.closest('tr').querySelector('.bc-d').value=bcProdDes(e.target.value); } });
 
 /* document imprimable : bilan de stock du jour */
 function bilanDocHTML(d){
