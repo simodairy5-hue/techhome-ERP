@@ -477,6 +477,20 @@
         </div>
       </div>
     </div>
+
+    <!-- Historique des modifications : pleine largeur, lecture seule -->
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-h" style="flex-wrap:wrap">🕓 Historique des modifications <span id="audit-count" class="pill"></span>
+        <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:500">Lecture seule — non modifiable</span>
+      </div>
+      <div class="panel-b" style="padding:0;overflow-x:auto">
+        <table class="data" id="audit-table">
+          <thead><tr><th style="width:160px">Date &amp; heure</th><th style="width:130px">Action</th><th>Détail</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="audit-empty" style="display:none">Aucune action enregistrée pour le moment.</div>
+      </div>
+    </div>
   </div>
 
   <!-- =================== PARAMETRES =================== -->
@@ -748,7 +762,7 @@
 /* ============================================================
    STOCKAGE
 ============================================================ */
-const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock', mouv:'bl_mouvements', cmd:'bl_commandes'};
+const KEY = {set:'bl_settings', prod:'bl_products', cli:'bl_clients', bon:'bl_bons', gar:'bl_garanties', stock:'bl_stock', mouv:'bl_mouvements', cmd:'bl_commandes', audit:'bl_audit'};
 const HIDE_PRICES = true;   // mode dépôt : masque tout ce qui concerne les prix (mettre false pour réafficher)
 const CONDITIONS_DEFAUT = `La garantie couvre tout défaut de fabrication pendant la durée indiquée à compter de la date d'achat.
 Elle ne couvre pas : les dommages dus à une mauvaise utilisation, une chute, un choc, l'humidité, une surtension électrique, ni l'usure normale.
@@ -805,9 +819,10 @@ function reloadAll(){
   stock    = load(KEY.stock,[]);
   mouvements = load(KEY.mouv,[]);
   commandes = load(KEY.cmd,[]);
+  audit = load(KEY.audit,[]);
   normSettings();
   try{ refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
-       renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); renderBcProdList(); renderBcList(); fillSettings(); }catch(e){}
+       renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); renderBcProdList(); renderBcList(); renderAudit(); fillSettings(); }catch(e){}
 }
 function setCloudStatus(ok){
   cloudOK=ok;
@@ -834,6 +849,7 @@ let garanties= load(KEY.gar,[]);
 let stock    = load(KEY.stock,[]);   // registre produits [{ref,des}]
 let mouvements = load(KEY.mouv,[]);  // journal [{id,date,ref,des,type:'entree'|'sortie',qte,note,motif,cmdNum,cmdId,createdAt}]
 let commandes = load(KEY.cmd,[]);    // bons de commande [{id,num,date,fournisseur,lignes:[{ref,des,qte}],createdAt}]
+let audit = load(KEY.audit,[]);      // historique des modifications [{id,ts,action,detail}] (lecture seule)
 normSettings();
 try{ localStorage.setItem(KEY.set,JSON.stringify(settings)); }catch(e){}
 
@@ -2217,6 +2233,7 @@ document.getElementById('mv-save').addEventListener('click',()=>{
   ensureProduct(ref,des);
   mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,motif,createdAt:Date.now()});
   save(KEY.mouv,mouvements); save(KEY.stock,stock);
+  logAudit('creation',(type==='entree'?'Entrée':'Sortie')+' manuelle — '+stockKey(ref)+' '+(type==='entree'?'+':'−')+qte+' au '+frDate(date)+(note?' ('+note+')':''));
   mvResetForm(); renderStock();
   toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' enregistrée ✓');
 });
@@ -2238,7 +2255,9 @@ function stkMove(ref,type,qte){
   if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
   const s=ensureProduct(ref);
   mouvements.unshift({id:uid(),date:todayISO(),ref:stockKey(ref),des:(s&&s.des)||ref,type,qte,note:'',createdAt:Date.now()});
-  save(KEY.mouv,mouvements); save(KEY.stock,stock); renderStock();
+  save(KEY.mouv,mouvements); save(KEY.stock,stock);
+  logAudit('creation',(type==='entree'?'Entrée':'Sortie')+' rapide — '+stockKey(ref)+' '+(type==='entree'?'+':'−')+qte+' au '+frDate(todayISO()));
+  renderStock();
   toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' ✓');
 }
 function renderStock(){
@@ -2265,7 +2284,7 @@ function renderStock(){
   const qtyOf=ref=>{ const el=tb.querySelector(`[data-qty="${CSS.escape(ref)}"]`); return el?el.value:1; };
   tb.querySelectorAll('[data-in]').forEach(b=>b.onclick=()=>stkMove(b.dataset.in,'entree',qtyOf(b.dataset.in)));
   tb.querySelectorAll('[data-out]').forEach(b=>b.onclick=()=>stkMove(b.dataset.out,'sortie',qtyOf(b.dataset.out)));
-  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); renderStock(); } });
+  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); const nMv=mouvements.filter(m=>stockKey(m.ref)===k).length; stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); logAudit('suppression','Produit retiré du stock — '+k+' ('+nMv+' mouvement(s) supprimé(s))'); renderStock(); } });
   renderMouvements(); renderBilan();
 }
 /* origine lisible d'un mouvement (pour le journal) */
@@ -2294,9 +2313,33 @@ function renderMouvements(){
       <td style="font-size:12px;color:var(--muted)">${mvOrigin(m)}</td>
       <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td>
     </tr>`;}).join('');
-  tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); renderStock(); } });
+  tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ const m=mouvements.find(x=>x.id===b.dataset.mvd); mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); if(m) logAudit('suppression','Mouvement supprimé — '+m.ref+' '+(m.type==='entree'?'+':'−')+m.qte+' du '+frDate(m.date)); renderStock(); } });
 }
 document.getElementById('mv-filter').addEventListener('change',renderMouvements);
+
+/* ============================================================
+   HISTORIQUE DES MODIFICATIONS (journal d'activité — lecture seule)
+============================================================ */
+function fmtTS(ts){ const d=new Date(ts||Date.now()); const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function logAudit(action,detail){
+  audit.unshift({id:uid(),ts:Date.now(),action,detail});
+  if(audit.length>800) audit=audit.slice(0,800);
+  save(KEY.audit,audit);
+  try{ renderAudit(); }catch(e){}
+}
+function auditColor(a){ return a==='creation'?'#e6f5f3;color:#0b7a70':(a==='suppression'?'#fee2e2;color:#b91c1c':(a==='modification'?'#fff7ed;color:#b45309':'#eef2f7;color:#475569')); }
+function auditLabel(a){ return a==='creation'?'Création':(a==='suppression'?'Suppression':(a==='modification'?'Modification':a)); }
+function renderAudit(){
+  const cnt=document.getElementById('audit-count'); if(cnt) cnt.textContent=audit.length||'';
+  const tb=document.querySelector('#audit-table tbody'); if(!tb) return;
+  document.getElementById('audit-empty').style.display=audit.length?'none':'block';
+  document.getElementById('audit-table').style.display=audit.length?'table':'none';
+  tb.innerHTML=audit.slice(0,400).map(e=>`<tr>
+    <td style="white-space:nowrap;font-size:12px">${fmtTS(e.ts)}</td>
+    <td><span class="cmd-badge" style="background:${auditColor(e.action)}">${auditLabel(e.action)}</span></td>
+    <td style="font-size:13px">${esc(e.detail||'')}</td>
+  </tr>`).join('');
+}
 /* bilan du jour */
 function renderBilan(){
   const el=document.getElementById('mv-bilan'); if(!el) return;
@@ -2386,6 +2429,7 @@ function bcSave(){
   if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
   else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
+  logAudit('creation',(kind==='retour'?'Retour N°':'Bon de commande N°')+num+' — '+lignes.length+' produit(s), '+lignes.reduce((a,l)=>a+(+l.qte||0),0)+' u., daté du '+frDate(date));
   bcResetForm(); renderStock(); renderBcList();
   toast((kind==='retour'?'Retour N°':'Bon de commande N°')+num+' validé — '+lignes.length+' ligne(s) en stock ✓');
 }
@@ -2395,6 +2439,7 @@ function bcDelete(id){
   commandes=commandes.filter(x=>x.id!==id);
   mouvements=mouvements.filter(m=>m.cmdId!==id);
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements);
+  logAudit('suppression',(isRet?'Retour N°':'Bon de commande N°')+(c?c.num:'')+' supprimé — entrées retirées du stock');
   renderStock(); renderBcList();
   toast('Document supprimé ✓');
 }
@@ -2501,7 +2546,7 @@ document.getElementById('mv-print').addEventListener('click',()=>{
 ============================================================ */
 /* stock : dates par défaut (la migration tourne après la synchro cloud) */
 try{ document.getElementById('mv-date').value=todayISO(); document.getElementById('mv-jour').value=todayISO(); }catch(e){}
-try{ renderBcProdList(); bcResetForm(); renderBcList(); }catch(e){}
+try{ renderBcProdList(); bcResetForm(); renderBcList(); renderAudit(); }catch(e){}
 refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
 renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings();
 if(HIDE_PRICES){
