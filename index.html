@@ -404,7 +404,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
         <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
-        <div class="hint" style="margin-top:8px">Choisis le produit : la désignation se remplit toute seule. Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
+        <div class="hint" style="margin-top:8px">Choisis le produit (la désignation se remplit toute seule), ou « ➕ Nouveau produit » pour en créer un qui n'existe pas encore. Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
         <div id="bc-list" style="display:none;margin-top:16px"></div>
       </div>
     </div>
@@ -2377,7 +2377,8 @@ function bcProdDes(ref){ const p=bcProducts().find(x=>stockKey(x.ref)===stockKey
 /* options du menu produit d'une ligne (pré-enregistrés) */
 function bcProdOptions(selRef){
   return '<option value="">— choisir un produit —</option>'+
-    bcProducts().map(p=>`<option value="${esc(p.ref)}"${stockKey(selRef)===stockKey(p.ref)?' selected':''}>${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('');
+    bcProducts().map(p=>`<option value="${esc(p.ref)}"${stockKey(selRef)===stockKey(p.ref)?' selected':''}>${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('')+
+    '<option value="__new__">➕ Nouveau produit…</option>';
 }
 /* rafraîchit les menus produits des lignes existantes (en gardant la sélection) */
 function renderBcProdList(){
@@ -2385,11 +2386,27 @@ function renderBcProdList(){
 }
 function bcLineRow(ref,des,qte){
   return `<tr>
-    <td><select class="bc-r" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">${bcProdOptions(ref)}</select></td>
+    <td>
+      <select class="bc-r" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">${bcProdOptions(ref)}</select>
+      <input class="bc-r-new" type="text" placeholder="Nouvelle référence" style="display:none;width:100%;margin-top:4px;padding:6px;border:1px solid #f59e0b;border-radius:6px;font-size:13px">
+    </td>
     <td><input class="bc-d" type="text" value="${esc(des||'')}" readonly placeholder="(automatique)" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;background:#f8fafc;color:#475569"></td>
     <td class="tcenter"><input class="bc-q" type="number" min="1" value="${qte||1}" style="width:80px;padding:6px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
     <td class="tright"><button class="line-x bc-del" title="Retirer">×</button></td>
   </tr>`;
+}
+/* bascule une ligne entre « produit existant » et « nouveau produit » */
+function bcToggleNew(tr){
+  const sel=tr.querySelector('.bc-r'), nw=tr.querySelector('.bc-r-new'), d=tr.querySelector('.bc-d');
+  if(sel.value==='__new__'){
+    nw.style.display='block';
+    d.removeAttribute('readonly'); d.style.background='#fff'; d.style.color=''; d.placeholder='Désignation du nouveau produit'; d.value='';
+    nw.focus();
+  } else {
+    nw.style.display='none'; nw.value='';
+    d.setAttribute('readonly','readonly'); d.style.background='#f8fafc'; d.style.color='#475569'; d.placeholder='(automatique)';
+    d.value=bcProdDes(sel.value);
+  }
 }
 function bcAddLine(ref,des,qte){ const b=bcBody(); if(b) b.insertAdjacentHTML('beforeend',bcLineRow(ref,des,qte)); }
 function bcEnsureLine(){ const b=bcBody(); if(b&&!b.children.length) bcAddLine(); }
@@ -2408,10 +2425,12 @@ function bcResetForm(){
 function bcCollect(){
   const out=[];
   (bcBody()?bcBody().querySelectorAll('tr'):[]).forEach(tr=>{
-    const ref=tr.querySelector('.bc-r').value.trim();
+    const sel=tr.querySelector('.bc-r');
+    const isNew=sel.value==='__new__';
+    const ref=isNew?tr.querySelector('.bc-r-new').value.trim():sel.value.trim();
     const des=tr.querySelector('.bc-d').value.trim();
     const qte=parseInt(tr.querySelector('.bc-q').value)||0;
-    if(ref&&qte>0) out.push({ref:stockKey(ref),des:des||ref,qte});
+    if(ref&&qte>0) out.push({ref:stockKey(ref),des:des||ref,qte,isNew});
   });
   return out;
 }
@@ -2423,12 +2442,20 @@ function bcSave(){
   const date=document.getElementById('bc-date').value||todayISO();
   const fournisseur=kind==='commande'?'Magasin':'';
   const docId=uid();
-  commandes.unshift({id:docId,kind,num,date,fournisseur,lignes,createdAt:Date.now()});
-  lignes.forEach(l=>{ ensureProduct(l.ref,l.des); mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:l.qte,note:'',motif:kind,cmdNum:num,cmdId:docId,createdAt:Date.now()}); });
+  const storedLignes=lignes.map(l=>({ref:l.ref,des:l.des,qte:l.qte}));
+  commandes.unshift({id:docId,kind,num,date,fournisseur,lignes:storedLignes,createdAt:Date.now()});
+  let newProds=[];
+  lignes.forEach(l=>{
+    ensureProduct(l.ref,l.des);
+    // enregistre un produit neuf dans le catalogue (pour qu'il apparaisse partout ensuite)
+    if(!products.some(p=>stockKey(p.ref)===stockKey(l.ref))){ products.push({ref:stockKey(l.ref),des:l.des||l.ref,pu:0}); newProds.push(stockKey(l.ref)); }
+    mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:l.qte,note:'',motif:kind,cmdNum:num,cmdId:docId,createdAt:Date.now()});
+  });
   const n=parseInt(num);
   if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
   else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
+  if(newProds.length){ save(KEY.prod,products); try{ refreshProdSelect(); renderCatalogue(); }catch(e){}; logAudit('creation','Nouveau(x) produit(s) créé(s) : '+newProds.join(', ')); }
   logAudit('creation',(kind==='retour'?'Retour N°':'Bon de commande N°')+num+' — '+lignes.length+' produit(s), '+lignes.reduce((a,l)=>a+(+l.qte||0),0)+' u., daté du '+frDate(date));
   bcResetForm(); renderStock(); renderBcList();
   toast((kind==='retour'?'Retour N°':'Bon de commande N°')+num+' validé — '+lignes.length+' ligne(s) en stock ✓');
@@ -2489,7 +2516,7 @@ document.getElementById('bc-save').addEventListener('click',bcSave);
 document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
 bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
-bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ e.target.closest('tr').querySelector('.bc-d').value=bcProdDes(e.target.value); } });
+bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ bcToggleNew(e.target.closest('tr')); } });
 
 /* document imprimable : bilan de stock du jour */
 function bilanDocHTML(d){
