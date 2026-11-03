@@ -2260,6 +2260,26 @@ function stkMove(ref,type,qte){
   renderStock();
   toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' ✓');
 }
+let stkEditing=null;   // réf en cours de modification (null = aucune)
+/* renomme / change la désignation d'un produit, en répercutant partout */
+function stkEdit(oldRef,newRef,newDes){
+  const ok=stockKey(oldRef), nk=stockKey(newRef);
+  if(!nk){ toast('La référence ne peut pas être vide',true); return; }
+  if(nk!==ok && stock.some(s=>stockKey(s.ref)===nk)){ toast('Une autre référence porte déjà ce nom. Choisis-en une autre.',true); return; }
+  const prod=stock.find(s=>stockKey(s.ref)===ok); if(!prod){ stkEditing=null; renderStock(); return; }
+  const oldDes=prod.des||''; const des=newDes||nk;
+  prod.ref=nk; prod.des=des;
+  mouvements.forEach(m=>{ if(stockKey(m.ref)===ok){ m.ref=nk; m.des=des; } });
+  commandes.forEach(c=>(c.lignes||[]).forEach(l=>{ if(stockKey(l.ref)===ok){ l.ref=nk; l.des=des; } }));
+  products.forEach(p=>{ if(stockKey(p.ref)===ok){ p.ref=nk; p.des=des; } });
+  save(KEY.stock,stock); save(KEY.mouv,mouvements); save(KEY.cmd,commandes); save(KEY.prod,products);
+  const ch=[]; if(nk!==ok) ch.push('réf '+ok+' → '+nk); if(des!==oldDes) ch.push('désignation → '+des);
+  logAudit('modification','Produit modifié'+(ch.length?' ('+ch.join(', ')+')':''));
+  stkEditing=null;
+  try{ refreshProdSelect(); renderCatalogue(); renderBcProdList(); }catch(e){}
+  renderStock();
+  toast('Produit modifié ✓');
+}
 function renderStock(){
   const tb=document.querySelector('#stk-table tbody'); if(!tb) return;
   renderStkProdSelect();
@@ -2267,8 +2287,21 @@ function renderStock(){
   document.getElementById('stk-empty').style.display=stock.length?'none':'block';
   document.getElementById('stk-table').style.display=stock.length?'table':'none';
   const list=stock.slice().sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
+  const inp='padding:5px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px';
   tb.innerHTML=list.map(s=>{
     const E=entreesFor(s.ref), S=sortiesFor(s.ref), R=E-S;
+    if(stkEditing && stockKey(s.ref)===stkEditing){
+      return `<tr style="background:#fff7ed">
+        <td><input class="stk-eref" value="${esc(s.ref)}" style="width:100%;${inp}"></td>
+        <td><input class="stk-edes" value="${esc(s.des||'')}" style="width:100%;${inp}"></td>
+        <td class="tcenter" style="color:#0b7a70;font-weight:600">${E}</td>
+        <td class="tcenter" style="color:#b91c1c;font-weight:600">${S}</td>
+        <td class="tcenter"><span class="cmd-badge">${R}</span></td>
+        <td class="tright" style="white-space:nowrap">
+          <button class="btn btn-primary btn-sm" data-editsave="${esc(s.ref)}">✓ Enregistrer</button>
+          <button class="btn btn-ghost btn-sm" data-editcancel="1">Annuler</button>
+        </td></tr>`;
+    }
     return `<tr>
       <td style="font-weight:600">${esc(s.ref)}</td>
       <td>${esc(s.des)||'—'}</td>
@@ -2279,11 +2312,15 @@ function renderStock(){
         <input type="number" min="1" value="1" data-qty="${esc(s.ref)}" style="width:56px;padding:5px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">
         <button class="btn btn-ghost btn-sm" data-in="${esc(s.ref)}" title="Entrée">+ Entrée</button>
         <button class="btn btn-ghost btn-sm" data-out="${esc(s.ref)}" title="Sortie">− Sortie</button>
+        <button class="btn btn-ghost btn-sm" data-edit="${esc(s.ref)}" title="Modifier réf/désignation">✏️</button>
         <button class="btn btn-danger btn-sm" data-del="${esc(s.ref)}">Suppr.</button>
       </td></tr>`;}).join('');
   const qtyOf=ref=>{ const el=tb.querySelector(`[data-qty="${CSS.escape(ref)}"]`); return el?el.value:1; };
   tb.querySelectorAll('[data-in]').forEach(b=>b.onclick=()=>stkMove(b.dataset.in,'entree',qtyOf(b.dataset.in)));
   tb.querySelectorAll('[data-out]').forEach(b=>b.onclick=()=>stkMove(b.dataset.out,'sortie',qtyOf(b.dataset.out)));
+  tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ stkEditing=stockKey(b.dataset.edit); renderStock(); });
+  tb.querySelectorAll('[data-editcancel]').forEach(b=>b.onclick=()=>{ stkEditing=null; renderStock(); });
+  tb.querySelectorAll('[data-editsave]').forEach(b=>b.onclick=()=>{ const tr=b.closest('tr'); stkEdit(b.dataset.editsave, tr.querySelector('.stk-eref').value.trim(), tr.querySelector('.stk-edes').value.trim()); });
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); const nMv=mouvements.filter(m=>stockKey(m.ref)===k).length; stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); logAudit('suppression','Produit retiré du stock — '+k+' ('+nMv+' mouvement(s) supprimé(s))'); renderStock(); } });
   renderMouvements(); renderBilan();
 }
