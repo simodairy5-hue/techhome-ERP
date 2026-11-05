@@ -394,12 +394,8 @@
               <option value="sortie">Bon de sortie (sortie de stock)</option>
             </select>
           </div>
-          <div class="field" id="bc-motif-wrap" style="display:none;max-width:200px"><label>Motif de sortie</label>
-            <select id="bc-motif">
-              <option value="vente">Vente</option>
-              <option value="vente_directe">Vente directe</option>
-              <option value="ctm">CTM</option>
-            </select>
+          <div class="field" id="bc-motif-wrap" style="display:none;max-width:200px"><label id="bc-motif-label">Motif</label>
+            <select id="bc-motif"></select>
           </div>
           <div class="field" style="max-width:120px"><label>N°</label><input id="bc-num" type="text"></div>
           <div class="field" style="max-width:170px"><label>Date</label><input id="bc-date" type="date"></div>
@@ -2337,7 +2333,7 @@ function renderStock(){
 function mvOrigin(m){
   const note=esc(m.note||'');
   if(m.motif==='commande'){ const b='<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">Bon de commande N°'+esc(m.cmdNum||'?')+'</span>'; return b+(note?' '+note:''); }
-  if(m.motif==='retour'){ const b='<span class="cmd-badge" style="background:#fff7ed;color:#b45309">Retour'+(m.cmdNum?' N°'+esc(m.cmdNum):'')+'</span>'; return b+(note?' '+note:''); }
+  if(m.motif==='retour'){ const can=retMotifLabel(m.canal); const b='<span class="cmd-badge" style="background:#fff7ed;color:#b45309">Retour'+(can?' '+esc(can):'')+(m.cmdNum?' N°'+esc(m.cmdNum):'')+'</span>'; return b+(note?' '+note:''); }
   if(m.motif==='vente'||m.motif==='vente_directe'||m.motif==='ctm'){ const b='<span class="cmd-badge" style="background:#fee2e2;color:#b91c1c">'+esc(sortMotifLabel(m.motif))+(m.cmdNum?' · Bon N°'+esc(m.cmdNum):'')+'</span>'; return b+(note?' '+note:''); }
   return note;
 }
@@ -2413,7 +2409,17 @@ const bcBody=()=>document.querySelector('#bc-lines tbody');
 const bcKind=()=>{ const s=document.getElementById('bc-kind'); const v=s?s.value:''; return (v==='retour'||v==='sortie')?v:'commande'; };
 const bcCurNext=()=>{ const k=bcKind(); return k==='retour'?(settings.retNext||1):(k==='sortie'?(settings.sortNext||1):(settings.cmdNext||1)); };
 const SORT_MOTIFS={vente:'Vente',vente_directe:'Vente directe',ctm:'CTM'};
+const RET_MOTIFS={ozone:'Ozone',ctm:'CTM',autre:'Autre'};
 function sortMotifLabel(m){ return SORT_MOTIFS[m]||'Sortie'; }
+function retMotifLabel(m){ return RET_MOTIFS[m]||''; }
+/* remplit le menu motif selon le type (sortie / retour) */
+function bcFillMotifOptions(kind){
+  const sel=document.getElementById('bc-motif'); if(!sel) return;
+  const cur=sel.value;
+  const map=kind==='retour'?RET_MOTIFS:SORT_MOTIFS;
+  sel.innerHTML=Object.keys(map).map(k=>`<option value="${k}">${esc(map[k])}</option>`).join('');
+  if(map[cur]) sel.value=cur;
+}
 /* produits sélectionnables = catalogue/bons/garanties + registre du stock (dédupliqués) */
 function bcProducts(){
   const map={};
@@ -2474,7 +2480,9 @@ function bcSyncKindUI(){
     if(t) t.textContent='➕ Bon de commande (entrée en stock)';
     if(s) s.textContent='✓ Valider le bon → entrée en stock';
   }
-  const mw=document.getElementById('bc-motif-wrap'); if(mw) mw.style.display=(k==='sortie')?'block':'none';
+  const mw=document.getElementById('bc-motif-wrap'); const showMotif=(k==='sortie'||k==='retour');
+  if(mw) mw.style.display=showMotif?'block':'none';
+  if(showMotif){ bcFillMotifOptions(k); const ml=document.getElementById('bc-motif-label'); if(ml) ml.textContent=(k==='retour')?'Motif de retour':'Motif de sortie'; }
   const n=document.getElementById('bc-num');
   if(n){ if(k==='sortie'){ n.value=''; n.placeholder='N° du bon Ozon / CTM'; } else { n.value=bcCurNext(); n.placeholder=''; } }
 }
@@ -2500,7 +2508,9 @@ function bcSave(){
   if(!lignes.length){ toast('Choisis au moins un produit avec une quantité',true); return; }
   const kind=bcKind();
   const isSortie=kind==='sortie';
+  const isRetour=kind==='retour';
   const motif=isSortie?(document.getElementById('bc-motif').value||'vente'):null;
+  const canal=isRetour?(document.getElementById('bc-motif').value||'ozone'):null;   // motif du retour (ozone/ctm/autre)
   // vérif stock négatif pour une sortie
   if(isSortie){
     const agg={}; lignes.forEach(l=>{ const k=stockKey(l.ref); agg[k]=(agg[k]||0)+l.qte; });
@@ -2515,12 +2525,15 @@ function bcSave(){
   const storedLignes=lignes.map(l=>({ref:l.ref,des:l.des,qte:l.qte}));
   const doc={id:docId,kind,num,date,fournisseur,lignes:storedLignes,createdAt:Date.now()};
   if(isSortie) doc.motif=motif;
+  if(isRetour) doc.canal=canal;
   commandes.unshift(doc);
   let newProds=[];
   lignes.forEach(l=>{
     ensureProduct(l.ref,l.des);
     if(!products.some(p=>stockKey(p.ref)===stockKey(l.ref))){ products.push({ref:stockKey(l.ref),des:l.des||l.ref,pu:0}); newProds.push(stockKey(l.ref)); }
-    mouvements.unshift({id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:isSortie?'sortie':'entree',qte:l.qte,note:'',motif:isSortie?motif:kind,cmdNum:num,cmdId:docId,createdAt:Date.now()});
+    const mv={id:uid(),date,ref:stockKey(l.ref),des:l.des||l.ref,type:isSortie?'sortie':'entree',qte:l.qte,note:'',motif:isSortie?motif:kind,cmdNum:num,cmdId:docId,createdAt:Date.now()};
+    if(isRetour) mv.canal=canal;
+    mouvements.unshift(mv);
   });
   const n=parseInt(num);
   if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
@@ -2528,7 +2541,7 @@ function bcSave(){
   else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
   if(newProds.length){ save(KEY.prod,products); try{ refreshProdSelect(); renderCatalogue(); }catch(e){}; logAudit('creation','Nouveau(x) produit(s) créé(s) : '+newProds.join(', ')); }
-  const lbl=isSortie?('Bon de sortie'+(num?' N°'+num:'')+' ('+sortMotifLabel(motif)+')'):((kind==='retour'?'Retour N°':'Bon de commande N°')+num);
+  const lbl=isSortie?('Bon de sortie'+(num?' N°'+num:'')+' ('+sortMotifLabel(motif)+')'):(isRetour?('Retour N°'+num+(retMotifLabel(canal)?' ('+retMotifLabel(canal)+')':'')):('Bon de commande N°'+num));
   logAudit('creation',lbl+' — '+lignes.length+' produit(s), '+lignes.reduce((a,l)=>a+(+l.qte||0),0)+' u., daté du '+frDate(date));
   bcResetForm(); renderStock(); renderBcList();
   toast(lbl+' validé — '+lignes.length+' ligne(s) '+(isSortie?'sorties du':'en')+' stock ✓');
@@ -2551,7 +2564,7 @@ function renderBcList(){
   el.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:8px">Documents enregistrés</div>'+
     commandes.map(c=>{ const q=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); const isRet=c.kind==='retour'; const isSor=c.kind==='sortie';
       const col=isSor?'#fee2e2;color:#b91c1c':(isRet?'#fff7ed;color:#b45309':'#e6f5f3;color:#0b7a70');
-      const lab=isSor?('Sortie'+(c.num?' N°'+esc(c.num):'')+' · '+sortMotifLabel(c.motif)):((isRet?'Retour':'Bon')+' N°'+esc(c.num));
+      const lab=isSor?('Sortie'+(c.num?' N°'+esc(c.num):'')+' · '+sortMotifLabel(c.motif)):(isRet?('Retour N°'+esc(c.num)+(retMotifLabel(c.canal)?' · '+retMotifLabel(c.canal):'')):('Bon N°'+esc(c.num)));
       const badge='<span class="cmd-badge" style="background:'+col+'">'+lab+'</span>';
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
         <div style="flex:1;min-width:180px">${badge} · ${frDate(c.date)} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${q} u.)</span></div>
@@ -2570,7 +2583,7 @@ function bcDocHTML(c){
   const metaRow=isSor
     ? `<tr><td class="lab">Motif</td><td>${esc(sortMotifLabel(c.motif))}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`
     : isRet
-    ? `<tr><td class="lab">Type</td><td>Retour en stock</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`
+    ? `<tr><td class="lab">Type</td><td>Retour en stock${retMotifLabel(c.canal)?' — '+esc(retMotifLabel(c.canal)):''}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`
     : `<tr><td class="lab">Fournisseur</td><td>${esc(c.fournisseur)||'Magasin'}</td><td class="lab">Date</td><td>${frDate(c.date)||'—'}</td></tr>`;
   const title=isSor?'Bon de sortie':(isRet?'Bon de retour':'Bon de commande');
   const sign=isSor?'Sortie vérifiée par (nom & signature)':(isRet?'Retour réceptionné par (nom & signature)':'Réception vérifiée par (nom & signature)');
