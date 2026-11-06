@@ -409,7 +409,13 @@
         <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
         <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
         <div class="hint" style="margin-top:8px">Choisis le produit (la désignation se remplit toute seule), ou « ➕ Nouveau produit » pour en créer un qui n'existe pas encore. Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
-        <div id="bc-list" style="display:none;margin-top:16px"></div>
+        <div id="bc-list" style="display:none;margin-top:16px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <div style="font-weight:700;font-size:13px">Documents enregistrés</div>
+            <input id="bc-search" type="text" placeholder="🔍 Rechercher (N°, type, produit, motif, date…)" style="margin-left:auto;max-width:340px;width:100%;padding:7px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+          </div>
+          <div id="bc-list-items"></div>
+        </div>
       </div>
     </div>
     <div class="grid-2">
@@ -2557,17 +2563,30 @@ function bcDelete(id){
   renderStock(); renderBcList();
   toast('Document supprimé ✓');
 }
+function bcDocTypeLabel(c){ return c.kind==='sortie'?'Sortie':(c.kind==='retour'?'Retour':'Bon de commande'); }
+/* texte fouillé par la recherche pour un document */
+function bcDocHaystack(c){
+  const parts=[bcDocTypeLabel(c), c.num||'', frDate(c.date)||''];
+  if(c.kind==='sortie') parts.push(sortMotifLabel(c.motif));
+  if(c.kind==='retour') parts.push('retour',retMotifLabel(c.canal));
+  (c.lignes||[]).forEach(l=>{ parts.push(l.ref||'', l.des||''); });
+  return parts.join(' ').toLowerCase();
+}
 function renderBcList(){
   const cnt=document.getElementById('bc-count'); if(cnt) cnt.textContent=commandes.length||'';
-  const el=document.getElementById('bc-list'); if(!el) return;
+  const el=document.getElementById('bc-list-items'); if(!el) return;
   if(!commandes.length){ el.innerHTML='<div class="empty" style="padding:8px">Aucun document enregistré.</div>'; return; }
-  el.innerHTML='<div style="font-weight:700;font-size:13px;margin-bottom:8px">Documents enregistrés</div>'+
-    commandes.map(c=>{ const q=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); const isRet=c.kind==='retour'; const isSor=c.kind==='sortie';
+  const si=document.getElementById('bc-search'); const q=(si?si.value:'').trim().toLowerCase();
+  const terms=q.split(/\s+/).filter(Boolean);
+  const list=terms.length?commandes.filter(c=>{ const h=bcDocHaystack(c); return terms.every(t=>h.includes(t)); }):commandes;
+  if(!list.length){ el.innerHTML='<div class="empty" style="padding:8px">Aucun document ne correspond à « '+esc(q)+' ».</div>'; return; }
+  el.innerHTML=(terms.length?('<div style="font-size:12px;color:var(--muted);margin-bottom:6px">'+list.length+' résultat(s) sur '+commandes.length+'</div>'):'')+
+    list.map(c=>{ const u=c.lignes.reduce((a,l)=>a+(+l.qte||0),0); const isRet=c.kind==='retour'; const isSor=c.kind==='sortie';
       const col=isSor?'#fee2e2;color:#b91c1c':(isRet?'#fff7ed;color:#b45309':'#e6f5f3;color:#0b7a70');
       const lab=isSor?('Sortie'+(c.num?' N°'+esc(c.num):'')+' · '+sortMotifLabel(c.motif)):(isRet?('Retour N°'+esc(c.num)+(retMotifLabel(c.canal)?' · '+retMotifLabel(c.canal):'')):('Bon N°'+esc(c.num)));
       const badge='<span class="cmd-badge" style="background:'+col+'">'+lab+'</span>';
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
-        <div style="flex:1;min-width:180px">${badge} · ${frDate(c.date)} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${q} u.)</span></div>
+        <div style="flex:1;min-width:180px">${badge} · ${frDate(c.date)} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${u} u.)</span></div>
         <button class="btn btn-dark btn-sm" data-bcpdf="${c.id}">📄 PDF</button>
         <button class="btn btn-danger btn-sm" data-bcdel="${c.id}">Suppr.</button>
       </div>`; }).join('');
@@ -2608,6 +2627,7 @@ document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
 document.getElementById('bc-save').addEventListener('click',bcSave);
 document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
+document.getElementById('bc-search').addEventListener('input',renderBcList);
 bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
 bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ bcToggleNew(e.target.closest('tr')); } });
 
