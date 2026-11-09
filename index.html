@@ -404,6 +404,7 @@
           <div class="field" style="max-width:120px"><label>N°</label><input id="bc-num" type="text"></div>
           <div class="field" style="max-width:170px"><label>Date</label><input id="bc-date" type="date"></div>
         </div>
+        <datalist id="bc-prod-dl"></datalist>
         <div style="overflow-x:auto">
           <table class="data" id="bc-lines">
             <thead><tr><th style="width:240px">Produit</th><th>Désignation</th><th class="tcenter" style="width:100px">Quantité</th><th class="tright" style="width:44px"></th></tr></thead>
@@ -412,7 +413,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
         <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
-        <div class="hint" style="margin-top:8px">Choisis le produit (la désignation se remplit toute seule), ou « ➕ Nouveau produit » pour en créer un qui n'existe pas encore. Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
+        <div class="hint" style="margin-top:8px">Cherche ou tape une référence : la désignation se remplit toute seule. Une référence inconnue (champ en orange) crée un nouveau produit (confirmation demandée). Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
         <div id="bc-list" style="display:none;margin-top:16px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
             <div style="font-weight:700;font-size:13px">Documents enregistrés</div>
@@ -498,7 +499,7 @@
       <div class="panel-h" style="flex-wrap:wrap">🕓 Historique des modifications <span id="audit-count" class="pill"></span>
         <span style="margin-left:auto;font-size:11px;color:var(--muted);font-weight:500">Lecture seule — non modifiable</span>
       </div>
-      <div class="panel-b" style="padding:0;overflow-x:auto">
+      <div class="panel-b scroll-list" style="padding:0">
         <table class="data" id="audit-table">
           <thead><tr><th style="width:160px">Date &amp; heure</th><th style="width:130px">Action</th><th>Détail</th></tr></thead>
           <tbody></tbody>
@@ -2448,38 +2449,32 @@ function bcProducts(){
   return Object.values(map).sort((a,b)=>a.ref.localeCompare(b.ref));
 }
 function bcProdDes(ref){ const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref)); return p?(p.des||''):''; }
-/* options du menu produit d'une ligne (pré-enregistrés) */
-function bcProdOptions(selRef){
-  return '<option value="">— choisir un produit —</option>'+
-    bcProducts().map(p=>`<option value="${esc(p.ref)}"${stockKey(selRef)===stockKey(p.ref)?' selected':''}>${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('')+
-    '<option value="__new__">➕ Nouveau produit…</option>';
-}
-/* rafraîchit les menus produits des lignes existantes (en gardant la sélection) */
+function bcIsKnown(ref){ const k=stockKey(ref); return bcProducts().some(p=>stockKey(p.ref)===k); }
+/* remplit la liste de recherche partagée (value = réf, texte = réf — désignation) */
 function renderBcProdList(){
-  (bcBody()?bcBody().querySelectorAll('.bc-r'):[]).forEach(sel=>{ const cur=sel.value; sel.innerHTML=bcProdOptions(cur); sel.value=cur; });
+  const dl=document.getElementById('bc-prod-dl'); if(!dl) return;
+  dl.innerHTML=bcProducts().map(p=>`<option value="${esc(p.ref)}">${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join('');
 }
 function bcLineRow(ref,des,qte){
   return `<tr>
-    <td>
-      <select class="bc-r" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">${bcProdOptions(ref)}</select>
-      <input class="bc-r-new" type="text" placeholder="Nouvelle référence" style="display:none;width:100%;margin-top:4px;padding:6px;border:1px solid #f59e0b;border-radius:6px;font-size:13px">
-    </td>
+    <td><input class="bc-r" list="bc-prod-dl" type="text" value="${esc(ref||'')}" placeholder="🔍 Chercher ou taper une réf…" style="width:100%;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
     <td><input class="bc-d" type="text" value="${esc(des||'')}" readonly placeholder="(automatique)" style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;background:#f8fafc;color:#475569"></td>
     <td class="tcenter"><input class="bc-q" type="number" min="1" value="${qte||1}" style="width:80px;padding:6px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px"></td>
     <td class="tright"><button class="line-x bc-del" title="Retirer">×</button></td>
   </tr>`;
 }
-/* bascule une ligne entre « produit existant » et « nouveau produit » */
-function bcToggleNew(tr){
-  const sel=tr.querySelector('.bc-r'), nw=tr.querySelector('.bc-r-new'), d=tr.querySelector('.bc-d');
-  if(sel.value==='__new__'){
-    nw.style.display='block';
-    d.removeAttribute('readonly'); d.style.background='#fff'; d.style.color=''; d.placeholder='Désignation du nouveau produit'; d.value='';
-    nw.focus();
-  } else {
-    nw.style.display='none'; nw.value='';
+/* après saisie/choix d'une réf : produit connu → désignation auto (verrouillée) ; réf inconnue → nouveau produit (désignation à saisir) */
+function bcLineSync(tr){
+  const r=tr.querySelector('.bc-r'), d=tr.querySelector('.bc-d');
+  const val=r.value.trim();
+  if(val && bcIsKnown(val)){
     d.setAttribute('readonly','readonly'); d.style.background='#f8fafc'; d.style.color='#475569'; d.placeholder='(automatique)';
-    d.value=bcProdDes(sel.value);
+    d.value=bcProdDes(val); r.style.borderColor='#cbd5e1';
+  } else if(val){
+    d.removeAttribute('readonly'); d.style.background='#fff'; d.style.color=''; d.placeholder='Désignation du nouveau produit';
+    r.style.borderColor='#f59e0b';   // orange = nouveau produit
+  } else {
+    d.setAttribute('readonly','readonly'); d.style.background='#f8fafc'; d.style.color='#475569'; d.placeholder='(automatique)'; d.value=''; r.style.borderColor='#cbd5e1';
   }
 }
 function bcAddLine(ref,des,qte){ const b=bcBody(); if(b) b.insertAdjacentHTML('beforeend',bcLineRow(ref,des,qte)); }
@@ -2513,18 +2508,18 @@ function bcResetForm(){
 function bcCollect(){
   const out=[];
   (bcBody()?bcBody().querySelectorAll('tr'):[]).forEach(tr=>{
-    const sel=tr.querySelector('.bc-r');
-    const isNew=sel.value==='__new__';
-    const ref=isNew?tr.querySelector('.bc-r-new').value.trim():sel.value.trim();
+    const ref=tr.querySelector('.bc-r').value.trim();
     const des=tr.querySelector('.bc-d').value.trim();
     const qte=parseInt(tr.querySelector('.bc-q').value)||0;
-    if(ref&&qte>0) out.push({ref:stockKey(ref),des:des||ref,qte,isNew});
+    if(ref&&qte>0) out.push({ref:stockKey(ref),des:des||ref,qte,isNew:!bcIsKnown(ref)});
   });
   return out;
 }
 function bcSave(){
   const lignes=bcCollect();
   if(!lignes.length){ toast('Choisis au moins un produit avec une quantité',true); return; }
+  const nouveaux=[...new Set(lignes.filter(l=>l.isNew).map(l=>l.ref))];
+  if(nouveaux.length && !confirm('Créer '+nouveaux.length+' nouveau(x) produit(s) : '+nouveaux.join(', ')+' ?\n(Vérifie que ce n\'est pas une faute de frappe d\'un produit déjà existant.)')) return;
   const kind=bcKind();
   const isSortie=kind==='sortie';
   const isRetour=kind==='retour';
@@ -2642,7 +2637,8 @@ document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
 document.getElementById('bc-search').addEventListener('input',renderBcList);
 bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
-bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ bcToggleNew(e.target.closest('tr')); } });
+bcBody().addEventListener('change',e=>{ if(e.target.classList.contains('bc-r')){ bcLineSync(e.target.closest('tr')); } });
+bcBody().addEventListener('input',e=>{ if(e.target.classList.contains('bc-r')){ bcLineSync(e.target.closest('tr')); } });
 
 /* document imprimable : bilan de stock du jour */
 function bilanDocHTML(d){
