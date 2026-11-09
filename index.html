@@ -1786,8 +1786,8 @@ document.getElementById('imp-add').onclick=()=>{
   const sel=selectedColis();
   if(!sel.length){ toast('Aucun colis sélectionné',true); return; }
   sel.forEach(c=>{ current.lignes.push({ref:c.ref,cmd:c.so,des:c.des,qte:c.qte,pu:c.pu,dest:c.dest,ville:c.ville,track:c.track,
-                                      lot:c.lot,lotSize:c.lotSize,lotPos:c.lotPos,unknown:c.unknown});
-                   registerStockRef(c.ref,c.des); });
+                                      lot:c.lot,lotSize:c.lotSize,lotPos:c.lotPos,unknown:c.unknown}); });
+                   // (plus d'ajout automatique au stock : les produits du stock se créent manuellement)
   document.getElementById('import-modal').classList.remove('show');
   autoSort();
   renderFormLines(); renderDoc(); renderStock();
@@ -2038,7 +2038,7 @@ document.getElementById('gimp-add').onclick=()=>{
       conditions:settings.garConditions||CONDITIONS_DEFAUT };
     settings.garNext=(parseInt(g.num)||0)+1;
     garanties.unshift(g); created.push(g);
-    registerStockRef(c.ref,c.des);
+    // (plus d'ajout automatique au stock : les produits du stock se créent manuellement)
   });
   save(KEY.gar,garanties); save(KEY.set,settings);
   renderGarHist(); renderGarDurees();
