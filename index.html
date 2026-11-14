@@ -2302,6 +2302,7 @@ function stkEdit(oldRef,newRef,newDes){
 function renderStock(){
   const tb=document.querySelector('#stk-table tbody'); if(!tb) return;
   renderStkProdSelect();
+  try{ renderBcProdList(); }catch(e){}   // garde la liste de recherche produit synchro avec le stock
   document.getElementById('stk-count').textContent=stock.length;
   const q=(stkSearch||'').trim().toLowerCase();
   const terms=q.split(/\s+/).filter(Boolean);
