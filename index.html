@@ -213,6 +213,11 @@
     @page{size:A4;margin:12mm;}
   }
   #printArea{display:none;}
+  #pdf-preview{position:fixed;inset:0;background:rgba(15,23,42,.65);z-index:300;display:none;flex-direction:column;}
+  #pdf-preview.show{display:flex;}
+  #pdfprev-bar{background:#16233b;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 16px;flex-wrap:wrap;}
+  #pdfprev-scroll{flex:1;overflow:auto;display:flex;justify-content:center;padding:20px 16px;}
+  #pdfprev-doc{transform:none !important;margin:0 !important;box-shadow:0 12px 40px rgba(0,0,0,.4);flex:0 0 auto;}
 </style>
 </head>
 <body>
@@ -1298,6 +1303,33 @@ async function exportPDF(b){
     printBon(b);
   }
 }
+/* Aperçu à l'écran : voir le bon sans rien télécharger ; boutons Télécharger / Imprimer dedans */
+function openBonPreview(b){
+  let ov=document.getElementById('pdf-preview');
+  if(!ov){
+    ov=document.createElement('div'); ov.id='pdf-preview';
+    ov.innerHTML=`
+      <div id="pdfprev-bar" class="no-print">
+        <div id="pdfprev-title" style="font-weight:700;font-size:14px"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" id="pdfprev-dl">⬇ Télécharger le PDF</button>
+          <button class="btn btn-ghost btn-sm" id="pdfprev-print">🖨 Imprimer</button>
+          <button class="btn btn-ghost btn-sm" id="pdfprev-close">✕ Fermer</button>
+        </div>
+      </div>
+      <div id="pdfprev-scroll"><div class="doc" id="pdfprev-doc"></div></div>`;
+    document.body.appendChild(ov);
+    const close=()=>ov.classList.remove('show');
+    ov.querySelector('#pdfprev-close').onclick=close;
+    ov.querySelector('#pdfprev-scroll').onclick=e=>{ if(e.target.id==='pdfprev-scroll') close(); };
+    document.addEventListener('keydown',e=>{ if(e.key==='Escape') close(); });
+  }
+  ov.querySelector('#pdfprev-title').textContent='Aperçu — Bon N°'+(b.num||'—')+' · '+((b.lignes||[]).length)+' ligne(s)';
+  ov.querySelector('#pdfprev-doc').innerHTML=docHTML(b);
+  ov.querySelector('#pdfprev-dl').onclick=()=>exportPDF(b);
+  ov.querySelector('#pdfprev-print').onclick=()=>printBon(b);
+  ov.classList.add('show');
+}
 function ensureLib(flag,src,check){
   return new Promise((res,rej)=>{
     if(check()){res();return;}
@@ -1308,7 +1340,7 @@ function ensureLib(flag,src,check){
 document.getElementById('btn-pdf').addEventListener('click',()=>{
   const b=saveCurrent();          // enregistre le bon (historique + N°) automatiquement…
   if(!b) return;                  // bon incomplet → saveCurrent a déjà prévenu
-  exportPDF(b);                   // …puis télécharge le PDF
+  openBonPreview(b);              // …puis ouvre l'aperçu (Télécharger / Imprimer dedans)
 });
 
 /* ============================================================
@@ -1376,7 +1408,7 @@ function renderHistorique(){
   tb.querySelectorAll('[data-restore]').forEach(x=>x.onclick=()=>bonLineRestore(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-ldel]').forEach(x=>x.onclick=()=>bonLineDelete(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>loadBon(b.dataset.edit));
-  tb.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>{const x=bons.find(z=>z.id===b.dataset.pdf); if(x) exportPDF(x);});
+  tb.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>{const x=bons.find(z=>z.id===b.dataset.pdf); if(x) openBonPreview(x);});
   tb.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>duplicateBon(b.dataset.dup));
   tb.querySelectorAll('[data-dec]').forEach(btn=>btn.onclick=()=>{ const sel=tb.querySelector('.hist-motif[data-m="'+btn.dataset.dec+'"]'); stockDecompte(btn.dataset.dec, sel?sel.value:'vente'); });
   tb.querySelectorAll('[data-undo]').forEach(btn=>btn.onclick=()=>stockDecompteUndo(btn.dataset.undo));
