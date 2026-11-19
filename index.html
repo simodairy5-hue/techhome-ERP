@@ -1361,7 +1361,7 @@ function renderHistorique(){
          </select><br><button class="btn btn-primary btn-sm" data-dec="${b.id}" style="margin-top:4px">Décompter du stock</button>`;
     let main=`
     <tr>
-      <td><span class="hist-exp" data-exp="${b.id}" style="cursor:pointer;color:var(--muted);margin-right:5px">${open?'▾':'▸'}</span><span class="pill">${esc(b.num)||'—'}</span></td>
+      <td style="white-space:nowrap"><span class="pill">${esc(b.num)||'—'}</span><button class="btn btn-sm hist-exp" data-exp="${b.id}" style="margin-left:8px;padding:4px 10px;font-weight:700;border-radius:8px;border:1px solid #0b7a70;background:${open?'#0b7a70':'#e6f5f3'};color:${open?'#fff':'#0b7a70'}">${open?'▾ Masquer':'▸ Détails'}</button></td>
       <td>${frDate(b.date)}</td>
       <td>${esc(b.client.nom)}${b.client.ville?' · '+esc(b.client.ville):''}</td>
       <td class="tcenter">${b.lignes.length}</td>
