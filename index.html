@@ -489,6 +489,10 @@
                 <option value="entree">Entrées</option>
                 <option value="sortie">Sorties</option>
               </select>
+              <select id="mv-detail" title="Mode de vue du détail d'un bon" style="padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+                <option value="cmd">Détail : par commande</option>
+                <option value="prod">Détail : par produit</option>
+              </select>
               <select id="mv-filter" style="max-width:170px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
                 <option value="">Tous les produits</option>
               </select>
@@ -1208,7 +1212,19 @@ function saveCurrent(){
   if(!validBon(b)) return null;
   if(b.id){ // modification
     const i=bons.findIndex(x=>x.id===b.id);
-    if(i>=0){ b.createdAt=bons[i].createdAt; bons[i]=b; }
+    if(i>=0){
+      const old=bons[i];
+      b.createdAt=old.createdAt;
+      b.stockDone=old.stockDone; b.stockMotif=old.stockMotif; b.stockDecDate=old.stockDecDate;   // garder l'état de décompte
+      // reporter lid + annulé sur les lignes correspondantes (match par N° commande + réf)
+      const oldLines=(old.lignes||[]).slice();
+      (b.lignes||[]).forEach(l=>{
+        const idx=oldLines.findIndex(o=> (o.cmd||'')===(l.cmd||'') && stockKey(o.ref)===stockKey(l.ref));
+        if(idx>=0){ l.lid=oldLines[idx].lid; if(oldLines[idx].annule) l.annule=true; oldLines.splice(idx,1); }
+      });
+      bons[i]=b;
+      if(b.stockDone){ syncBonStock(b); save(KEY.mouv,mouvements); save(KEY.stock,stock); try{renderStock();}catch(e){} }   // re-synchronise le stock sans doublon
+    }
   }else{
     b.id=uid(); b.createdAt=Date.now(); bons.unshift(b); current.id=b.id;
     document.getElementById('editBadge').style.display='inline-block';
@@ -1365,28 +1381,40 @@ function renderHistorique(){
     if(confirm('Supprimer ce bon ?')){ const x=bons.find(z=>z.id===b.dataset.del); if(x&&x.stockDone){ mouvements=mouvements.filter(m=>m.cmdId!==x.id); save(KEY.mouv,mouvements); } bons=bons.filter(z=>z.id!==b.dataset.del); save(KEY.bon,bons); renderHistorique(); try{renderStock();}catch(e){} toast('Bon supprimé'); }
   });
 }
-/* décompte du stock à partir d'un bon de livraison : une sortie par ligne (commande) */
+/* réconcilie les sorties du stock avec les lignes du bon — idempotent (jamais de double décompte) */
+function syncBonStock(b){
+  mouvements=mouvements.filter(m=>m.cmdId!==b.id);   // on repart propre pour ce bon
+  if(b.stockDone){
+    (b.lignes||[]).forEach(l=>{
+      if(l.annule) return;
+      const ref=(l.ref||'').trim(), qte=+l.qte||0;
+      if(!ref||qte<=0) return;
+      if(!l.lid) l.lid=uid();
+      ensureProduct(ref,l.des);
+      mouvements.unshift({id:uid(),date:b.date||todayISO(),ref:stockKey(ref),des:l.des||ref,type:'sortie',qte:qte,note:'',motif:b.stockMotif||'vente',cmdNum:b.num||'',cmdId:b.id,cmd:l.cmd||'',lid:l.lid,createdAt:Date.now()});
+    });
+  }
+}
+/* décompte du stock à partir d'un bon : une sortie par commande (ligne) */
 function stockDecompte(bonId, motif){
   const b=bons.find(z=>z.id===bonId); if(!b){ return; }
   if(b.stockDone){ toast('Ce bon est déjà décompté',true); return; }
   motif=SORT_MOTIFS[motif]?motif:'vente';
-  const lines=(b.lignes||[]).filter(l=>(l.ref||'').trim() && (+l.qte||0)>0);
-  if(!lines.length){ toast('Aucune ligne avec produit + quantité',true); return; }
+  const lines=(b.lignes||[]).filter(l=>(l.ref||'').trim() && (+l.qte||0)>0 && !l.annule);
+  if(!lines.length){ toast('Aucune commande avec produit + quantité',true); return; }
   const agg={}; lines.forEach(l=>{ const k=stockKey(l.ref); agg[k]=(agg[k]||0)+(+l.qte||0); });
   const neg=Object.keys(agg).filter(k=>resteFor(k)-agg[k]<0);
   const unknown=[...new Set(lines.filter(l=>!stock.some(s=>stockKey(s.ref)===stockKey(l.ref))).map(l=>stockKey(l.ref)))];
-  let msg='Décompter du stock le bon N°'+(b.num||'?')+' — '+lines.length+' ligne(s), motif « '+sortMotifLabel(motif)+' » ?';
+  const nbProd=Object.keys(agg).length;
+  let msg='Décompter du stock le bon N°'+(b.num||'?')+' — '+nbProd+' produit(s) / '+lines.length+' commande(s), motif « '+sortMotifLabel(motif)+' » ?';
   if(unknown.length) msg+='\n\n'+unknown.length+' produit(s) encore absents du stock seront créés : '+unknown.join(', ');
   if(neg.length) msg+='\n\n⚠️ Le reste deviendra négatif pour : '+neg.join(', ');
   if(!confirm(msg)) return;
-  lines.forEach(l=>{
-    if(!l.lid) l.lid=uid();
-    ensureProduct(l.ref,l.des);
-    mouvements.unshift({id:uid(),date:b.date||todayISO(),ref:stockKey(l.ref),des:l.des||l.ref,type:'sortie',qte:+l.qte||0,note:'',motif:motif,cmdNum:b.num||'',cmdId:b.id,cmd:l.cmd||'',lid:l.lid,createdAt:Date.now()});
-  });
+  (b.lignes||[]).forEach(l=>{ if(!l.lid) l.lid=uid(); });
   b.stockDone=true; b.stockMotif=motif; b.stockDecDate=todayISO();
+  syncBonStock(b);
   save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.bon,bons);
-  logAudit('creation','Décompte stock — Bon N°'+(b.num||'?')+' ('+lines.length+' ligne(s), '+sortMotifLabel(motif)+')'+(unknown.length?' · '+unknown.length+' produit(s) créé(s)':''));
+  logAudit('creation','Décompte stock — Bon N°'+(b.num||'?')+' ('+nbProd+' produit(s) / '+lines.length+' commande(s), '+sortMotifLabel(motif)+')'+(unknown.length?' · '+unknown.length+' produit(s) créé(s)':''));
   renderStock(); renderHistorique();
   toast('Bon N°'+(b.num||'?')+' décompté du stock ✓');
 }
@@ -1394,22 +1422,21 @@ function stockDecompteUndo(bonId){
   const b=bons.find(z=>z.id===bonId); if(!b||!b.stockDone) return;
   const n=mouvements.filter(m=>m.cmdId===bonId).length;
   if(!confirm('Annuler le décompte du bon N°'+(b.num||'?')+' ? Les '+n+' sortie(s) seront retirées et le stock remonte.')) return;
-  mouvements=mouvements.filter(m=>m.cmdId!==bonId);
   b.stockDone=false; delete b.stockMotif; delete b.stockDecDate;
+  syncBonStock(b);
   save(KEY.mouv,mouvements); save(KEY.bon,bons);
-  logAudit('suppression','Décompte annulé — Bon N°'+(b.num||'?')+' ('+n+' sortie(s) retirées)');
+  logAudit('suppression','Décompte annulé — Bon N°'+(b.num||'?'));
   renderStock(); renderHistorique();
   toast('Décompte annulé — stock remonté ✓');
 }
-/* marquer une commande du bon comme ANNULÉE : compense la sortie par une entrée (produit remis en stock, tracé) */
+/* marquer une commande comme ANNULÉE : le produit reste en stock (re-sync), tracé dans l'historique */
 function bonLineCancel(bonId, lid){
   const b=bons.find(z=>z.id===bonId); if(!b||!b.stockDone) return;
   const l=(b.lignes||[]).find(x=>x.lid===lid); if(!l){ return; }
   if(l.annule){ toast('Commande déjà annulée',true); return; }
   if(!confirm('Marquer la commande '+(l.cmd||l.ref||'')+' comme ANNULÉE ? '+(+l.qte||0)+' '+(l.ref||'')+' sera remis en stock.')) return;
-  l.annule=true;
-  mouvements.unshift({id:uid(),date:todayISO(),ref:stockKey(l.ref),des:l.des||l.ref,type:'entree',qte:+l.qte||0,note:'Commande annulée',motif:'annulation',cmdNum:b.num||'',cmdId:b.id,cmd:l.cmd||'',lid:l.lid,createdAt:Date.now()});
-  save(KEY.bon,bons); save(KEY.mouv,mouvements);
+  l.annule=true; syncBonStock(b);
+  save(KEY.bon,bons); save(KEY.mouv,mouvements); save(KEY.stock,stock);
   logAudit('modification','Commande '+(l.cmd||l.ref||'')+' annulée (Bon N°'+(b.num||'?')+') — +'+(+l.qte||0)+' remis en stock');
   renderStock(); renderHistorique();
   toast('Commande annulée — produit remis en stock ✓');
@@ -1417,9 +1444,8 @@ function bonLineCancel(bonId, lid){
 function bonLineRestore(bonId, lid){
   const b=bons.find(z=>z.id===bonId); if(!b) return;
   const l=(b.lignes||[]).find(x=>x.lid===lid); if(!l||!l.annule) return;
-  l.annule=false;
-  mouvements=mouvements.filter(m=>!(m.cmdId===bonId && m.lid===lid && m.motif==='annulation'));
-  save(KEY.bon,bons); save(KEY.mouv,mouvements);
+  l.annule=false; syncBonStock(b);
+  save(KEY.bon,bons); save(KEY.mouv,mouvements); save(KEY.stock,stock);
   logAudit('modification','Commande '+(l.cmd||l.ref||'')+' rétablie (Bon N°'+(b.num||'?')+')');
   renderStock(); renderHistorique();
   toast('Commande rétablie ✓');
@@ -2414,6 +2440,7 @@ function stkMove(ref,type,qte){
 let stkEditing=null;   // réf en cours de modification (null = aucune)
 let stkSearch='';      // recherche produit dans le tableau Stock
 let mvExpanded=new Set();   // bons dépliés dans le journal (par cmdId)
+let mvExpandedProd=new Set(); // produits dépliés dans la vue « par produit »
 let histExpanded=new Set(); // bons dépliés dans l'onglet Bons
 /* renomme / change la désignation d'un produit, en répercutant partout */
 function stkEdit(oldRef,newRef,newDes){
@@ -2501,6 +2528,7 @@ function renderMouvements(){
   const ftype=document.getElementById('mv-ftype').value;
   const from=document.getElementById('mv-from').value;
   const to=document.getElementById('mv-to').value;
+  const mvDetailView=document.getElementById('mv-detail')?document.getElementById('mv-detail').value:'cmd';
   let list=mouvements.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||0)-(a.createdAt||0));
   if(filt) list=list.filter(m=>stockKey(m.ref)===stockKey(filt));
   if(ftype) list=list.filter(m=>m.type===ftype);
@@ -2548,27 +2576,50 @@ function renderMouvements(){
       </tr>`;
     } else {
       const open=mvExpanded.has(g.key);
+      const nbProd=new Set(g.lines.map(m=>stockKey(m.ref))).size;
+      const hasCmd=g.lines.some(m=>m.cmd);
+      const e2=g.type==='entree';
+      const label=nbProd+' produit'+(nbProd>1?'s':'')+(hasCmd?(' · '+g.lines.length+' commande'+(g.lines.length>1?'s':'')):'');
       html+=`<tr class="mv-grp" data-grp="${g.key}" style="cursor:pointer;background:#fbfdfe">
         <td style="white-space:nowrap">${frDate(g.date)}</td>
-        <td><span style="display:inline-block;width:14px;color:var(--muted)">${open?'▾':'▸'}</span><b>${g.lines.length} produit${g.lines.length>1?'s':''}</b></td>
+        <td><span style="display:inline-block;width:14px;color:var(--muted)">${open?'▾':'▸'}</span><b>${label}</b></td>
         <td class="tcenter">${badge}</td>${qcell}
         <td style="font-size:12px;color:var(--muted)">${mvOrigin(g.first)}</td>
         <td class="tright"><button class="line-x" data-grpdel="${g.key}" title="Supprimer tout le document">×</button></td>
       </tr>`;
       if(open){
-        g.lines.forEach(m=>{ const e2=m.type==='entree';
-          html+=`<tr style="background:#f8fafc"><td></td>
-            <td style="padding-left:24px"><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
-            <td></td>
-            <td class="tcenter" style="font-weight:600;color:${e2?'#0b7a70':'#b91c1c'}">${e2?'+':'−'}${m.qte}</td>
-            <td style="font-size:11px;color:var(--muted)">${esc(m.cmd?('Cmd '+m.cmd):(m.note||''))}</td>
-            <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer cette ligne">×</button></td>
-          </tr>`; });
+        if(mvDetailView==='prod'){
+          const byRef={};
+          g.lines.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:m.ref,des:m.des,qte:0,cmds:[]}; byRef[k].qte+=(+m.qte||0); byRef[k].cmds.push(m); });
+          Object.values(byRef).sort((a,b)=>b.qte-a.qte).forEach(pr=>{
+            const pk=g.key+'|'+stockKey(pr.ref); const popen=mvExpandedProd.has(pk); const multi=pr.cmds.length>1;
+            html+=`<tr class="mv-sub" data-sub="${pk}" style="background:#f8fafc;${multi?'cursor:pointer':''}"><td></td>
+              <td style="padding-left:24px"><span style="display:inline-block;width:12px;color:var(--muted)">${multi?(popen?'▾':'▸'):''}</span><b>${esc(pr.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(pr.des||'')}</span></td>
+              <td></td>
+              <td class="tcenter" style="font-weight:700;color:${e2?'#0b7a70':'#b91c1c'}">${e2?'+':'−'}${pr.qte}</td>
+              <td style="font-size:11px;color:var(--muted)">${pr.cmds.length} commande${multi?'s':''}</td>
+              <td></td></tr>`;
+            if(popen){ pr.cmds.forEach(m=>{ html+=`<tr style="background:#fcfdff"><td></td>
+              <td style="padding-left:50px;font-size:11px;color:var(--muted)">N° ${esc(m.cmd||'—')}</td><td></td>
+              <td class="tcenter" style="font-size:11px;color:${e2?'#0b7a70':'#b91c1c'}">${e2?'+':'−'}${m.qte}</td><td></td>
+              <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td></tr>`; }); }
+          });
+        } else {
+          g.lines.forEach(m=>{
+            html+=`<tr style="background:#f8fafc"><td></td>
+              <td style="padding-left:24px"><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
+              <td></td>
+              <td class="tcenter" style="font-weight:600;color:${e2?'#0b7a70':'#b91c1c'}">${e2?'+':'−'}${m.qte}</td>
+              <td style="font-size:11px;color:var(--muted)">${esc(m.cmd?('N° '+m.cmd):(m.note||''))}</td>
+              <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer cette ligne">×</button></td>
+            </tr>`; });
+        }
       }
     }
   });
   tb.innerHTML=html;
   tb.querySelectorAll('.mv-grp').forEach(row=>row.onclick=e=>{ if(e.target.closest('[data-grpdel]'))return; const k=row.dataset.grp; if(mvExpanded.has(k))mvExpanded.delete(k); else mvExpanded.add(k); renderMouvements(); });
+  tb.querySelectorAll('.mv-sub').forEach(row=>row.onclick=e=>{ if(e.target.closest('[data-mvd]'))return; const k=row.dataset.sub; if(mvExpandedProd.has(k))mvExpandedProd.delete(k); else mvExpandedProd.add(k); renderMouvements(); });
   tb.querySelectorAll('[data-grpdel]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const k=b.dataset.grpdel; const grpMv=mouvements.filter(m=>m.cmdId===k); const c=commandes.find(x=>x.id===k);
     if(!confirm('Supprimer ce document ('+grpMv.length+' ligne(s)) et annuler son effet sur le stock ?')) return;
     mouvements=mouvements.filter(m=>m.cmdId!==k); if(c) commandes=commandes.filter(x=>x.id!==k);
@@ -2577,7 +2628,7 @@ function renderMouvements(){
   tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ const m=mouvements.find(x=>x.id===b.dataset.mvd); mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); if(m) logAudit('suppression','Mouvement supprimé — '+m.ref+' '+(m.type==='entree'?'+':'−')+m.qte+' du '+frDate(m.date)); renderStock(); } });
 }
 document.getElementById('mv-filter').addEventListener('change',renderMouvements);
-['mv-ftype','mv-from','mv-to'].forEach(id=>document.getElementById(id).addEventListener('change',renderMouvements));
+['mv-ftype','mv-from','mv-to','mv-detail'].forEach(id=>document.getElementById(id).addEventListener('change',renderMouvements));
 document.getElementById('mv-clear').addEventListener('click',()=>{ document.getElementById('mv-filter').value=''; document.getElementById('mv-ftype').value=''; document.getElementById('mv-from').value=''; document.getElementById('mv-to').value=''; renderMouvements(); });
 document.getElementById('stk-search').addEventListener('input',e=>{ stkSearch=e.target.value; renderStock(); });
 
