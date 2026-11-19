@@ -2291,6 +2291,7 @@ function stkMove(ref,type,qte){
 }
 let stkEditing=null;   // réf en cours de modification (null = aucune)
 let stkSearch='';      // recherche produit dans le tableau Stock
+let mvExpanded=new Set();   // bons dépliés dans le journal (par cmdId)
 /* renomme / change la désignation d'un produit, en répercutant partout */
 function stkEdit(oldRef,newRef,newDes){
   const ok=stockKey(oldRef), nk=stockKey(newRef);
@@ -2396,16 +2397,59 @@ function renderMouvements(){
   document.getElementById('mv-count').textContent=list.length;
   document.getElementById('mv-empty').style.display=list.length?'none':'block';
   document.getElementById('mv-table').style.display=list.length?'table':'none';
-  tb.innerHTML=list.slice(0,300).map(m=>{
-    const ent=m.type==='entree';
-    return `<tr>
-      <td style="white-space:nowrap">${frDate(m.date)}</td>
-      <td><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
-      <td class="tcenter"><span class="cmd-badge" style="background:${ent?'#e6f5f3':'#fee2e2'};color:${ent?'#0b7a70':'#b91c1c'}">${ent?'Entrée':'Sortie'}</span></td>
-      <td class="tcenter" style="font-weight:700;color:${ent?'#0b7a70':'#b91c1c'}">${ent?'+':'−'}${m.qte}</td>
-      <td style="font-size:12px;color:var(--muted)">${mvOrigin(m)}</td>
-      <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td>
-    </tr>`;}).join('');
+  // regrouper par document (cmdId) ; les mouvements manuels restent seuls
+  const groups=[], byCmd={};
+  list.forEach(m=>{
+    if(m.cmdId){
+      if(!byCmd[m.cmdId]){ byCmd[m.cmdId]={key:m.cmdId,bon:true,date:m.date,type:m.type,first:m,lines:[],total:0,created:m.createdAt||0}; groups.push(byCmd[m.cmdId]); }
+      const g=byCmd[m.cmdId]; g.lines.push(m); g.total+=(+m.qte||0); if((m.createdAt||0)>g.created)g.created=m.createdAt||0; if((m.date||'')>(g.date||''))g.date=m.date;
+    } else {
+      groups.push({key:m.id,bon:false,date:m.date,type:m.type,first:m,lines:[m],total:(+m.qte||0),created:m.createdAt||0});
+    }
+  });
+  groups.sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.created-a.created);
+  let html='';
+  groups.slice(0,400).forEach(g=>{
+    const ent=g.type==='entree';
+    const badge=`<span class="cmd-badge" style="background:${ent?'#e6f5f3':'#fee2e2'};color:${ent?'#0b7a70':'#b91c1c'}">${ent?'Entrée':'Sortie'}</span>`;
+    const qcell=`<td class="tcenter" style="font-weight:700;color:${ent?'#0b7a70':'#b91c1c'}">${ent?'+':'−'}${g.total}</td>`;
+    if(!g.bon){
+      const m=g.first;
+      html+=`<tr>
+        <td style="white-space:nowrap">${frDate(m.date)}</td>
+        <td><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
+        <td class="tcenter">${badge}</td>${qcell}
+        <td style="font-size:12px;color:var(--muted)">${mvOrigin(m)}</td>
+        <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer">×</button></td>
+      </tr>`;
+    } else {
+      const open=mvExpanded.has(g.key);
+      html+=`<tr class="mv-grp" data-grp="${g.key}" style="cursor:pointer;background:#fbfdfe">
+        <td style="white-space:nowrap">${frDate(g.date)}</td>
+        <td><span style="display:inline-block;width:14px;color:var(--muted)">${open?'▾':'▸'}</span><b>${g.lines.length} produit${g.lines.length>1?'s':''}</b></td>
+        <td class="tcenter">${badge}</td>${qcell}
+        <td style="font-size:12px;color:var(--muted)">${mvOrigin(g.first)}</td>
+        <td class="tright"><button class="line-x" data-grpdel="${g.key}" title="Supprimer tout le document">×</button></td>
+      </tr>`;
+      if(open){
+        g.lines.forEach(m=>{ const e2=m.type==='entree';
+          html+=`<tr style="background:#f8fafc"><td></td>
+            <td style="padding-left:24px"><b>${esc(m.ref)}</b> <span style="color:var(--muted);font-size:11px">${esc(m.des||'')}</span></td>
+            <td></td>
+            <td class="tcenter" style="font-weight:600;color:${e2?'#0b7a70':'#b91c1c'}">${e2?'+':'−'}${m.qte}</td>
+            <td style="font-size:11px;color:var(--muted)">${esc(m.cmd?('Cmd '+m.cmd):(m.note||''))}</td>
+            <td class="tright"><button class="line-x" data-mvd="${m.id}" title="Supprimer cette ligne">×</button></td>
+          </tr>`; });
+      }
+    }
+  });
+  tb.innerHTML=html;
+  tb.querySelectorAll('.mv-grp').forEach(row=>row.onclick=e=>{ if(e.target.closest('[data-grpdel]'))return; const k=row.dataset.grp; if(mvExpanded.has(k))mvExpanded.delete(k); else mvExpanded.add(k); renderMouvements(); });
+  tb.querySelectorAll('[data-grpdel]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const k=b.dataset.grpdel; const grpMv=mouvements.filter(m=>m.cmdId===k); const c=commandes.find(x=>x.id===k);
+    if(!confirm('Supprimer ce document ('+grpMv.length+' ligne(s)) et annuler son effet sur le stock ?')) return;
+    mouvements=mouvements.filter(m=>m.cmdId!==k); if(c) commandes=commandes.filter(x=>x.id!==k);
+    save(KEY.mouv,mouvements); if(c) save(KEY.cmd,commandes);
+    logAudit('suppression','Document supprimé depuis le journal — '+grpMv.length+' mouvement(s)'); renderStock(); try{renderBcList();}catch(e){} });
   tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ const m=mouvements.find(x=>x.id===b.dataset.mvd); mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); if(m) logAudit('suppression','Mouvement supprimé — '+m.ref+' '+(m.type==='entree'?'+':'−')+m.qte+' du '+frDate(m.date)); renderStock(); } });
 }
 document.getElementById('mv-filter').addEventListener('change',renderMouvements);
