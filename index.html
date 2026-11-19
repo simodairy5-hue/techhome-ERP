@@ -2236,7 +2236,7 @@ function migrateStock(){
 }
 /* listes déroulantes produits (mouvement + filtre journal) */
 function renderStkProdSelect(){
-  const prods=knownProducts();
+  const prods=bcProducts();   // uniquement les produits du stock actuel (pas de doublons ni de produits supprimés)
   const sel=document.getElementById('mv-prod');
   if(sel){ const cur=sel.value; sel.innerHTML='<option value="">— choisir ou saisir ci-dessous —</option>'+prods.map(p=>`<option value="${esc(p.ref)}">${esc(p.ref)}${p.des?' — '+esc(p.des):''}</option>`).join(''); sel.value=cur; }
   const flt=document.getElementById('mv-filter');
@@ -2244,7 +2244,7 @@ function renderStkProdSelect(){
 }
 document.getElementById('mv-prod').addEventListener('change',e=>{
   const ref=e.target.value; if(!ref) return;
-  const p=knownProducts().find(x=>stockKey(x.ref)===stockKey(ref));
+  const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref));
   document.getElementById('mv-ref').value=ref;
   document.getElementById('mv-des').value=p?(p.des||''):'';
 });
