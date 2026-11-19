@@ -237,7 +237,12 @@
     <button class="tab" data-view="catalogue">Catalogue</button>
     <button class="tab" data-view="parametres">Paramètres</button>
   </div>
-  <span id="cloud-status" style="margin-left:auto;font-size:12px;color:#fff;opacity:.9;white-space:nowrap" title="Statut de la synchronisation">⏳ Connexion…</span>
+  <button id="test-enter" style="margin-left:auto;margin-right:12px;background:#f59e0b;color:#16233b;border:none;border-radius:6px;padding:5px 11px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap">🧪 Mode essai</button>
+  <span id="cloud-status" style="font-size:12px;color:#fff;opacity:.9;white-space:nowrap" title="Statut de la synchronisation">⏳ Connexion…</span>
+</div>
+<div id="test-banner" style="display:none;background:#b45309;color:#fff;padding:10px 16px;text-align:center;font-weight:700;font-size:14px;position:sticky;top:0;z-index:60">
+  🧪 MODE ESSAI — tes modifications ne sont PAS enregistrées (ni en local, ni en ligne).
+  <button id="test-exit" style="margin-left:12px;background:#fff;color:#b45309;border:none;border-radius:6px;padding:5px 12px;font-weight:700;cursor:pointer">Quitter le mode essai</button>
 </div>
 
 <div class="wrap">
@@ -395,7 +400,6 @@
             <select id="bc-kind">
               <option value="commande">Bon de commande (entrée — réassort magasin)</option>
               <option value="retour">Retour (entrée — produit qui revient)</option>
-              <option value="sortie">Bon de sortie (sortie de stock)</option>
             </select>
           </div>
           <div class="field" id="bc-motif-wrap" style="display:none;max-width:200px"><label id="bc-motif-label">Motif</label>
@@ -805,7 +809,9 @@ let supa=null, cloudOK=false, lastPush={}, cloudReady=false;  // cloudReady : bl
 try{ if(window.supabase) supa=window.supabase.createClient(SUPA_URL,SUPA_KEY); }catch(e){ supa=null; }
 
 function load(k,def){ try{ const v=localStorage.getItem(k); return v?JSON.parse(v):def; }catch(e){ return def; } }
+let testMode=false;   // mode essai : aucune écriture (local + cloud) tant qu'il est actif
 function save(k,v){
+  if(testMode) return;   // mode essai : on ne persiste rien (les variables en mémoire changent, mais rien n'est enregistré)
   try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){}
   cloudPush(k,v);
 }
@@ -830,6 +836,7 @@ function cloudSubscribe(){
   supa.channel('crm_data_rt')
     .on('postgres_changes',{event:'*',schema:'public',table:'crm_data'},payload=>{
       const row=payload.new; if(!row||!row.key) return;
+      if(testMode) return;   // mode essai : on n'applique pas les mises à jour entrantes (pour ne pas effacer le test)
       if(Date.now()-(lastPush[row.key]||0)<3500) return;   // ignore nos propres écritures
       try{ localStorage.setItem(row.key,JSON.stringify(row.value)); }catch(e){}
       reloadAll();
@@ -852,6 +859,21 @@ function reloadAll(){
   try{ refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
        renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); renderBcProdList(); renderBcList(); renderAudit(); fillSettings(); }catch(e){}
 }
+/* ===== MODE ESSAI ===== */
+function enterTestMode(){
+  if(testMode) return;
+  if(!confirm('Activer le MODE ESSAI ?\n\nTu pourras tout tester (créer des bons, décompter, annuler…) SANS que rien ne soit enregistré.\nEn quittant, tout reviendra à ton vrai stock actuel.')) return;
+  testMode=true;
+  const bn=document.getElementById('test-banner'); if(bn) bn.style.display='block';
+  const be=document.getElementById('test-enter'); if(be) be.style.display='none';
+  try{ toast('Mode essai activé — rien ne sera enregistré 🧪'); }catch(e){}
+}
+function exitTestMode(){
+  if(!confirm('Quitter le mode essai ?\n\nToutes tes modifications de test seront effacées et le vrai stock sera rechargé.')) return;
+  testMode=false;
+  try{ location.reload(); }catch(e){ document.getElementById('test-banner').style.display='none'; document.getElementById('test-enter').style.display=''; }
+}
+try{ document.getElementById('test-enter').addEventListener('click',enterTestMode); document.getElementById('test-exit').addEventListener('click',exitTestMode); }catch(e){}
 function setCloudStatus(ok){
   cloudOK=ok;
   const el=document.getElementById('cloud-status');
