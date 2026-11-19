@@ -478,11 +478,22 @@
         </div>
 
         <div class="panel" style="margin-top:16px">
-          <div class="panel-h">Journal des mouvements <span id="mv-count" class="pill"></span>
-            <select id="mv-filter" style="margin-left:auto;max-width:200px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
-              <option value="">Tous les produits</option>
-            </select>
+          <div class="panel-h" style="flex-wrap:wrap;gap:8px">Journal des mouvements <span id="mv-count" class="pill"></span>
+            <div style="margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <select id="mv-ftype" style="padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+                <option value="">Tous types</option>
+                <option value="entree">Entrées</option>
+                <option value="sortie">Sorties</option>
+              </select>
+              <select id="mv-filter" style="max-width:170px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+                <option value="">Tous les produits</option>
+              </select>
+              <label style="font-size:12px;color:var(--muted)">Du <input id="mv-from" type="date" style="padding:5px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"></label>
+              <label style="font-size:12px;color:var(--muted)">Au <input id="mv-to" type="date" style="padding:5px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"></label>
+              <button class="btn btn-ghost btn-sm" id="mv-clear">Réinitialiser</button>
+            </div>
           </div>
+          <div id="mv-summary" style="padding:9px 14px;font-size:13px;border-bottom:1px solid var(--line);display:none;background:#f8fafc"></div>
           <div class="panel-b scroll-list" style="padding:0">
             <table class="data" id="mv-table">
               <thead><tr><th>Date</th><th>Produit</th><th class="tcenter">Type</th><th class="tcenter">Qté</th><th>Note</th><th class="tright"></th></tr></thead>
@@ -2362,8 +2373,26 @@ function mvOrigin(m){
 function renderMouvements(){
   const tb=document.querySelector('#mv-table tbody'); if(!tb) return;
   const filt=document.getElementById('mv-filter').value;
+  const ftype=document.getElementById('mv-ftype').value;
+  const from=document.getElementById('mv-from').value;
+  const to=document.getElementById('mv-to').value;
   let list=mouvements.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||0)-(a.createdAt||0));
   if(filt) list=list.filter(m=>stockKey(m.ref)===stockKey(filt));
+  if(ftype) list=list.filter(m=>m.type===ftype);
+  if(from) list=list.filter(m=>(m.date||'')>=from);
+  if(to) list=list.filter(m=>(m.date||'')<=to);
+  // résumé de la sélection (entrées / sorties)
+  const sumEl=document.getElementById('mv-summary');
+  if(sumEl){
+    const active=filt||ftype||from||to;
+    const E=list.filter(m=>m.type==='entree'), S=list.filter(m=>m.type==='sortie');
+    const sum=a=>a.reduce((x,m)=>x+(+m.qte||0),0);
+    sumEl.style.display=active?'block':'none';
+    sumEl.innerHTML='<b>'+list.length+' mouvement(s)</b> · '
+      +'<span style="color:#0b7a70;font-weight:700">'+E.length+' entrées (+'+sum(E)+' u.)</span> · '
+      +'<span style="color:#b91c1c;font-weight:700">'+S.length+' sorties (−'+sum(S)+' u.)</span>'
+      +((from||to)?' · <span style="color:var(--muted)">du '+(from?frDate(from):'…')+' au '+(to?frDate(to):'…')+'</span>':'');
+  }
   document.getElementById('mv-count').textContent=list.length;
   document.getElementById('mv-empty').style.display=list.length?'none':'block';
   document.getElementById('mv-table').style.display=list.length?'table':'none';
@@ -2380,6 +2409,8 @@ function renderMouvements(){
   tb.querySelectorAll('[data-mvd]').forEach(b=>b.onclick=()=>{ if(confirm('Supprimer ce mouvement ? (le reste sera recalculé)')){ const m=mouvements.find(x=>x.id===b.dataset.mvd); mouvements=mouvements.filter(x=>x.id!==b.dataset.mvd); save(KEY.mouv,mouvements); if(m) logAudit('suppression','Mouvement supprimé — '+m.ref+' '+(m.type==='entree'?'+':'−')+m.qte+' du '+frDate(m.date)); renderStock(); } });
 }
 document.getElementById('mv-filter').addEventListener('change',renderMouvements);
+['mv-ftype','mv-from','mv-to'].forEach(id=>document.getElementById(id).addEventListener('change',renderMouvements));
+document.getElementById('mv-clear').addEventListener('click',()=>{ document.getElementById('mv-filter').value=''; document.getElementById('mv-ftype').value=''; document.getElementById('mv-from').value=''; document.getElementById('mv-to').value=''; renderMouvements(); });
 document.getElementById('stk-search').addEventListener('input',e=>{ stkSearch=e.target.value; renderStock(); });
 
 /* ============================================================
