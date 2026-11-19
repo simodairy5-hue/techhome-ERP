@@ -1220,7 +1220,7 @@ function saveCurrent(){
       const oldLines=(old.lignes||[]).slice();
       (b.lignes||[]).forEach(l=>{
         const idx=oldLines.findIndex(o=> (o.cmd||'')===(l.cmd||'') && stockKey(o.ref)===stockKey(l.ref));
-        if(idx>=0){ l.lid=oldLines[idx].lid; if(oldLines[idx].annule) l.annule=true; oldLines.splice(idx,1); }
+        if(idx>=0){ l.lid=oldLines[idx].lid; if(oldLines[idx].annule){ l.annule=true; if(oldLines[idx].annuleMotif) l.annuleMotif=oldLines[idx].annuleMotif; } oldLines.splice(idx,1); }
       });
       bons[i]=b;
       if(b.stockDone){ syncBonStock(b); save(KEY.mouv,mouvements); save(KEY.stock,stock); try{renderStock();}catch(e){} }   // re-synchronise le stock sans doublon
@@ -1344,16 +1344,18 @@ function renderHistorique(){
     </tr>`;
     let detail='';
     if(open){
+      (b.lignes||[]).forEach(l=>{ if(!l.lid) l.lid=uid(); });
       const rows=(b.lignes||[]).map(l=>{
         const cancelled=!!l.annule;
-        const act = b.stockDone
+        const annAct = b.stockDone
           ? (cancelled
               ? `<button class="btn btn-ghost btn-sm" data-restore="1" data-bid="${b.id}" data-lid="${l.lid}">Rétablir</button>`
-              : `<button class="btn btn-danger btn-sm" data-cancel="1" data-bid="${b.id}" data-lid="${l.lid}">Annuler</button>`)
-          : '<span style="color:var(--muted);font-size:11px">décompter d\'abord</span>';
-        const statut = b.stockDone ? (cancelled
-          ? '<span class="cmd-badge" style="background:#eef2f7;color:#475569">Annulée</span>'
-          : '<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">Livrée</span>') : '—';
+              : `<button class="btn btn-ghost btn-sm" data-cancel="1" data-bid="${b.id}" data-lid="${l.lid}">Annuler</button>`)
+          : '';
+        const act = annAct + ` <button class="btn btn-danger btn-sm" data-ldel="1" data-bid="${b.id}" data-lid="${l.lid}">Suppr.</button>`;
+        const statut = cancelled
+          ? '<span class="cmd-badge" style="background:#fde8e8;color:#b42318">Annulée</span>'+(l.annuleMotif?' <span style="color:#b42318;font-size:11px">· '+esc(l.annuleMotif)+'</span>':'')
+          : (b.stockDone ? '<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">Livrée</span>' : '—');
         return `<tr style="${cancelled?'opacity:.5':''}">
           <td style="font-size:12px">${esc(l.cmd||'—')}</td>
           <td style="font-size:12px"><b>${esc(l.ref||'')}</b> <span style="color:var(--muted)">${esc(l.des||'')}</span></td>
@@ -1372,6 +1374,7 @@ function renderHistorique(){
   tb.querySelectorAll('[data-exp]').forEach(x=>x.onclick=()=>{ const k=x.dataset.exp; if(histExpanded.has(k))histExpanded.delete(k); else histExpanded.add(k); renderHistorique(); });
   tb.querySelectorAll('[data-cancel]').forEach(x=>x.onclick=()=>bonLineCancel(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-restore]').forEach(x=>x.onclick=()=>bonLineRestore(x.dataset.bid,x.dataset.lid));
+  tb.querySelectorAll('[data-ldel]').forEach(x=>x.onclick=()=>bonLineDelete(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>loadBon(b.dataset.edit));
   tb.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>{const x=bons.find(z=>z.id===b.dataset.pdf); if(x) exportPDF(x);});
   tb.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>duplicateBon(b.dataset.dup));
@@ -1434,21 +1437,34 @@ function bonLineCancel(bonId, lid){
   const b=bons.find(z=>z.id===bonId); if(!b||!b.stockDone) return;
   const l=(b.lignes||[]).find(x=>x.lid===lid); if(!l){ return; }
   if(l.annule){ toast('Commande déjà annulée',true); return; }
-  if(!confirm('Marquer la commande '+(l.cmd||l.ref||'')+' comme ANNULÉE ? '+(+l.qte||0)+' '+(l.ref||'')+' sera remis en stock.')) return;
-  l.annule=true; syncBonStock(b);
+  const motif=prompt('Motif de l\'annulation de la commande '+(l.cmd||l.ref||'')+' ?\n(ex : non partie, refusée, retour, erreur…)\n'+(+l.qte||0)+' '+(l.ref||'')+' sera remis en stock.','non partie');
+  if(motif===null) return;
+  l.annule=true; l.annuleMotif=(motif||'').trim(); syncBonStock(b);
   save(KEY.bon,bons); save(KEY.mouv,mouvements); save(KEY.stock,stock);
-  logAudit('modification','Commande '+(l.cmd||l.ref||'')+' annulée (Bon N°'+(b.num||'?')+') — +'+(+l.qte||0)+' remis en stock');
+  logAudit('modification','Commande '+(l.cmd||l.ref||'')+' annulée'+(l.annuleMotif?' ('+l.annuleMotif+')':'')+' (Bon N°'+(b.num||'?')+') — +'+(+l.qte||0)+' remis en stock');
   renderStock(); renderHistorique();
   toast('Commande annulée — produit remis en stock ✓');
 }
 function bonLineRestore(bonId, lid){
   const b=bons.find(z=>z.id===bonId); if(!b) return;
   const l=(b.lignes||[]).find(x=>x.lid===lid); if(!l||!l.annule) return;
-  l.annule=false; syncBonStock(b);
+  l.annule=false; l.annuleMotif=''; syncBonStock(b);
   save(KEY.bon,bons); save(KEY.mouv,mouvements); save(KEY.stock,stock);
   logAudit('modification','Commande '+(l.cmd||l.ref||'')+' rétablie (Bon N°'+(b.num||'?')+')');
   renderStock(); renderHistorique();
   toast('Commande rétablie ✓');
+}
+function bonLineDelete(bonId, lid){
+  const b=bons.find(z=>z.id===bonId); if(!b) return;
+  const l=(b.lignes||[]).find(x=>x.lid===lid); if(!l) return;
+  const rendu = b.stockDone && !l.annule;
+  if(!confirm('SUPPRIMER définitivement la commande '+(l.cmd||l.ref||'')+' du bon N°'+(b.num||'?')+' ?\nLa ligne disparaît du bon'+(rendu?' et '+(+l.qte||0)+' '+(l.ref||'')+' sera remis en stock':'')+'.')) return;
+  b.lignes=(b.lignes||[]).filter(x=>x.lid!==lid);
+  syncBonStock(b);
+  save(KEY.bon,bons); save(KEY.mouv,mouvements); save(KEY.stock,stock);
+  logAudit('suppression','Commande '+(l.cmd||l.ref||'')+' supprimée du Bon N°'+(b.num||'?'));
+  renderStock(); renderHistorique();
+  toast('Commande supprimée ✓');
 }
 function gotoCreer(){ document.querySelector('.tab[data-view="creer"]').click(); }
 function loadBon(id){
