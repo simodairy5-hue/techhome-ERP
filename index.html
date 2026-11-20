@@ -1408,9 +1408,7 @@ function renderHistorique(){
     const nbAnn=(b.lignes||[]).filter(l=>l.annule).length;
     const stockCell = b.stockDone
       ? `<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">✓ Décompté${b.stockMotif?' · '+esc(sortMotifLabel(b.stockMotif)):''}</span>${nbAnn?'<br><span class="cmd-badge" style="background:#eef2f7;color:#475569;margin-top:3px;display:inline-block">'+nbAnn+' annulée(s)</span>':''}<br><button class="btn btn-ghost btn-sm" data-undo="${b.id}" style="margin-top:4px">Annuler le décompte</button>`
-      : `<select class="hist-motif" data-m="${b.id}" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">
-           ${[['vente','Vente'],['vente_directe','Vente directe'],['ctm','CTM']].map(o=>`<option value="${o[0]}"${o[0]===((CANAUX[b.canal]&&CANAUX[b.canal].motif)||'vente')?' selected':''}>${o[1]}</option>`).join('')}
-         </select><br><button class="btn btn-primary btn-sm" data-dec="${b.id}" style="margin-top:4px">Décompter du stock</button>`;
+      : `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Canal : <b>${esc((CANAUX[b.canal]&&CANAUX[b.canal].label)||'Ozone')}</b></div><button class="btn btn-primary btn-sm" data-dec="${b.id}">Décompter du stock</button>`;
     let main=`
     <tr>
       <td style="white-space:nowrap"><span class="pill">${esc(b.num)||'—'}</span><button class="btn btn-sm hist-exp" data-exp="${b.id}" style="margin-left:8px;padding:4px 10px;font-weight:700;border-radius:8px;border:1px solid #0b7a70;background:${open?'#0b7a70':'#e6f5f3'};color:${open?'#fff':'#0b7a70'}">${open?'▾ Masquer':'▸ Détails'}</button></td>
@@ -1462,7 +1460,7 @@ function renderHistorique(){
   tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>loadBon(b.dataset.edit));
   tb.querySelectorAll('[data-pdf]').forEach(b=>b.onclick=()=>{const x=bons.find(z=>z.id===b.dataset.pdf); if(x) openBonPreview(x);});
   tb.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>duplicateBon(b.dataset.dup));
-  tb.querySelectorAll('[data-dec]').forEach(btn=>btn.onclick=()=>{ const sel=tb.querySelector('.hist-motif[data-m="'+btn.dataset.dec+'"]'); stockDecompte(btn.dataset.dec, sel?sel.value:'vente'); });
+  tb.querySelectorAll('[data-dec]').forEach(btn=>btn.onclick=()=>{ const bb=bons.find(z=>z.id===btn.dataset.dec); const mo=(bb&&CANAUX[bb.canal]&&CANAUX[bb.canal].motif)||'vente'; stockDecompte(btn.dataset.dec, mo); });
   tb.querySelectorAll('[data-undo]').forEach(btn=>btn.onclick=()=>stockDecompteUndo(btn.dataset.undo));
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     if(confirm('Supprimer ce bon ?')){ const x=bons.find(z=>z.id===b.dataset.del); if(x&&x.stockDone){ mouvements=mouvements.filter(m=>m.cmdId!==x.id); save(KEY.mouv,mouvements); } bons=bons.filter(z=>z.id!==b.dataset.del); save(KEY.bon,bons); renderHistorique(); try{renderStock();}catch(e){} toast('Bon supprimé'); }
