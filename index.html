@@ -1510,28 +1510,112 @@ function syncBonStock(b){
     });
   }
 }
-/* décompte du stock à partir d'un bon : une sortie par commande (ligne) */
+/* décompte d'un bon : on ouvre d'abord un APERÇU (vérifier chaque réf avant de décompter) */
 function stockDecompte(bonId, motif){
   const b=bons.find(z=>z.id===bonId); if(!b){ return; }
   if(b.stockDone){ toast('Ce bon est déjà décompté',true); return; }
   motif=SORT_MOTIFS[motif]?motif:'vente';
   const lines=(b.lignes||[]).filter(l=>(l.ref||'').trim() && (+l.qte||0)>0 && !l.annule);
   if(!lines.length){ toast('Aucune commande avec produit + quantité',true); return; }
-  const agg={}; lines.forEach(l=>{ const k=stockKey(l.ref); agg[k]=(agg[k]||0)+(+l.qte||0); });
-  const neg=Object.keys(agg).filter(k=>resteFor(k)-agg[k]<0);
-  const unknown=[...new Set(lines.filter(l=>!stock.some(s=>stockKey(s.ref)===stockKey(l.ref))).map(l=>stockKey(l.ref)))];
-  const nbProd=Object.keys(agg).length;
-  let msg='Décompter du stock le bon N°'+(b.num||'?')+' — '+nbProd+' produit(s) / '+lines.length+' commande(s), motif « '+sortMotifLabel(motif)+' » ?';
-  if(unknown.length) msg+='\n\n'+unknown.length+' produit(s) encore absents du stock seront créés : '+unknown.join(', ');
-  if(neg.length) msg+='\n\n⚠️ Le reste deviendra négatif pour : '+neg.join(', ');
-  if(!confirm(msg)) return;
+  openDecomptePreview(b, motif, lines);
+}
+/* applique réellement le décompte (après confirmation de l'aperçu) */
+function applyDecompte(bonId, motif){
+  const b=bons.find(z=>z.id===bonId); if(!b||b.stockDone) return;
+  motif=SORT_MOTIFS[motif]?motif:'vente';
+  const lines=(b.lignes||[]).filter(l=>(l.ref||'').trim() && (+l.qte||0)>0 && !l.annule);
+  const nbProd=new Set(lines.map(l=>resolveKey(l.ref))).size;
   (b.lignes||[]).forEach(l=>{ if(!l.lid) l.lid=uid(); });
   b.stockDone=true; b.stockMotif=motif; b.stockDecDate=todayISO();
   syncBonStock(b);
   save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.bon,bons);
-  logAudit('creation','Décompte stock — Bon N°'+(b.num||'?')+' ('+nbProd+' produit(s) / '+lines.length+' commande(s), '+sortMotifLabel(motif)+')'+(unknown.length?' · '+unknown.length+' produit(s) créé(s)':''));
+  logAudit('creation','Décompte stock — Bon N°'+(b.num||'?')+' ('+nbProd+' produit(s) / '+lines.length+' commande(s), '+sortMotifLabel(motif)+')');
   renderStock(); renderHistorique();
   toast('Bon N°'+(b.num||'?')+' décompté du stock ✓');
+}
+/* ---- APERÇU avant décompte ---- */
+let decPreview=null;
+function prodInCatalogue(ref){ const k=resolveKey(ref); return (products||[]).some(p=>resolveKey(p.ref)===k); }
+function decTargets(){
+  const t={};
+  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(k&&!t[k]) t[k]={ref:k,des:s.des||''}; });
+  (products||[]).forEach(p=>{ const k=resolveKey(p.ref); if(k&&!t[k]) t[k]={ref:k,des:p.des||''}; });
+  return t;
+}
+function openDecomptePreview(b, motif, lines){
+  const agg={};
+  lines.forEach(l=>{ const k=stockKey(l.ref); if(!agg[k]) agg[k]={key:k,ref:(l.ref||'').trim()||k,des:l.des||'',qte:0}; agg[k].qte+=(+l.qte||0); });
+  decPreview={bonId:b.id,num:b.num||'?',motif,rows:Object.values(agg),choices:{}};
+  renderDecPreview();
+}
+function closeDecPreview(){ const ov=document.getElementById('dec-preview'); if(ov) ov.style.display='none'; decPreview=null; }
+function renderDecPreview(){
+  if(!decPreview) return;
+  let ov=document.getElementById('dec-preview');
+  if(!ov){ ov=document.createElement('div'); ov.id='dec-preview';
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:320;display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;overflow:auto;';
+    document.body.appendChild(ov);
+    ov.addEventListener('click',e=>{ if(e.target===ov) closeDecPreview(); });
+  }
+  const tg=decTargets();
+  const optsFor=(r)=>{
+    const known=prodInCatalogue(r.ref)||!!findStock(r.ref);
+    const sel=decPreview.choices[r.key]||r.key;
+    let o=`<option value="${esc(r.key)}"${sel===r.key?' selected':''}>${known?'Garder « '+esc(r.ref)+' »':'➕ Créer nouveau « '+esc(r.ref)+' »'}</option>`;
+    Object.values(tg).filter(x=>x.ref!==r.key).sort((a,b)=>a.ref.localeCompare(b.ref)).forEach(x=>{ o+=`<option value="${esc(x.ref)}"${sel===x.ref?' selected':''}>↪ Relier à ${esc(x.ref)}${x.des?' — '+esc(x.des):''}</option>`; });
+    return o;
+  };
+  const rowsHtml=decPreview.rows.map(r=>{
+    const inCat=prodInCatalogue(r.ref), inStk=!!findStock(r.ref);
+    const tgt=decPreview.choices[r.key]||r.key;
+    const cur=resteFor(tgt), after=cur-r.qte;
+    const statut=inCat?'<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">✓ catalogue</span>'
+      :(inStk?'<span class="cmd-badge" style="background:#eef2f7;color:#475569">en stock</span>'
+            :'<span class="cmd-badge" style="background:#fef3c7;color:#92400e">⚠ pas au catalogue</span>');
+    return `<tr>
+      <td style="font-weight:600">${esc(r.ref)}<div style="font-size:11px;color:var(--muted);font-weight:400">${esc(r.des||'')}</div></td>
+      <td>${statut}</td>
+      <td><select data-decsel="${esc(r.key)}" style="width:100%;max-width:280px;padding:6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">${optsFor(r)}</select></td>
+      <td class="tcenter" style="color:#b91c1c;font-weight:700">−${r.qte}</td>
+      <td class="tcenter">${cur}</td>
+      <td class="tcenter"><span class="cmd-badge" style="background:${after<0?'#fee2e2':'#e6f5f3'};color:${after<0?'#b91c1c':'#0b7a70'}">${after}</span></td>
+    </tr>`;
+  }).join('');
+  const anyNew=decPreview.rows.some(r=>!prodInCatalogue(r.ref)&&!findStock(r.ref)&&(decPreview.choices[r.key]||r.key)===r.key);
+  const anyNeg=decPreview.rows.some(r=>{ const tgt=decPreview.choices[r.key]||r.key; return resteFor(tgt)-r.qte<0; });
+  ov.innerHTML=`<div style="background:#fff;border-radius:14px;max-width:860px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <div><div style="font-weight:700;font-size:16px">Décompte du bon N°${esc(decPreview.num)}</div>
+      <div style="font-size:12px;color:var(--muted)">Vérifie chaque référence avant de décompter · motif « ${esc(sortMotifLabel(decPreview.motif))} »</div></div>
+      <button class="btn btn-ghost btn-sm" id="dec-close">✕</button>
+    </div>
+    <div style="padding:6px 20px;max-height:58vh;overflow:auto">
+      <table class="data" style="width:100%">
+        <thead><tr><th>Réf. du bon</th><th>Statut</th><th>Attribuer à</th><th class="tcenter">Qté</th><th class="tcenter">Reste</th><th class="tcenter">Après</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      ${anyNew?'<div style="background:#fef3c7;color:#92400e;border-radius:8px;padding:9px 11px;margin:10px 0;font-size:12px;font-weight:600">⚠ Des réfs ne sont pas dans le catalogue → un nouveau produit sera créé. Tu peux les relier à un produit existant dans la colonne « Attribuer à ».</div>':''}
+      ${anyNeg?'<div style="background:#fee2e2;color:#b91c1c;border-radius:8px;padding:9px 11px;margin:10px 0;font-size:12px;font-weight:600">⚠ Le reste deviendra négatif pour au moins un produit.</div>':''}
+    </div>
+    <div style="padding:14px 20px;border-top:1px solid var(--line);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-ghost" id="dec-cancel">Annuler</button>
+      <button class="btn btn-primary" id="dec-confirm">✓ Confirmer le décompte</button>
+    </div>
+  </div>`;
+  ov.style.display='flex';
+  ov.querySelector('#dec-close').onclick=closeDecPreview;
+  ov.querySelector('#dec-cancel').onclick=closeDecPreview;
+  ov.querySelector('#dec-confirm').onclick=confirmDecompte;
+  ov.querySelectorAll('[data-decsel]').forEach(sel=>sel.onchange=()=>{ decPreview.choices[sel.dataset.decsel]=sel.value; renderDecPreview(); });
+}
+function confirmDecompte(){
+  if(!decPreview) return;
+  const {bonId,motif,rows,choices}=decPreview;
+  settings.prodLinks=settings.prodLinks||{};
+  rows.forEach(r=>{ const tgt=choices[r.key]; if(tgt && tgt!==r.key){ settings.prodLinks[r.key]=resolveKey(tgt); } });
+  save(KEY.set,settings);
+  closeDecPreview();
+  applyDecompte(bonId,motif);
 }
 function stockDecompteUndo(bonId){
   const b=bons.find(z=>z.id===bonId); if(!b||!b.stockDone) return;
