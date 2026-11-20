@@ -66,6 +66,13 @@
     font-family:inherit;color:var(--ink);background:#fff;
   }
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,148,136,.15);}
+  .numwrap{display:flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:0 11px;}
+  .numwrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,148,136,.15);}
+  .numwrap input{border:none;flex:1;min-width:30px;padding:9px 2px;width:auto;text-align:center;}
+  .numwrap input:focus{box-shadow:none;}
+  .numwrap .numfix{color:#64748b;font-weight:700;white-space:nowrap;font-size:14px;user-select:none;}
+  .numwrap.raw .numfix{display:none;}
+  .numwrap.raw input{text-align:left;}
   .row{display:flex;gap:10px;}
   .row>div{flex:1;}
   .field{margin-bottom:13px;}
@@ -269,7 +276,14 @@
               </select>
             </div>
             <div class="row">
-              <div class="field"><label>N° du bon</label><input id="f-num" type="text"></div>
+              <div class="field"><label>N° du bon</label>
+                <div class="numwrap" id="f-numwrap">
+                  <span class="numfix" id="f-num-pre">ozon</span>
+                  <input id="f-num-mid" type="text" inputmode="numeric" autocomplete="off">
+                  <span class="numfix" id="f-num-suf">.26</span>
+                </div>
+                <input id="f-num" type="hidden">
+              </div>
               <div class="field"><label>Date</label><input id="f-date" type="date"></div>
             </div>
             <div class="field"><label>Représentant</label><input id="f-rep" type="text" placeholder="MAGASIN"></div>
@@ -418,7 +432,12 @@
           <div class="field" id="bc-motif-wrap" style="display:none;max-width:200px"><label id="bc-motif-label">Motif</label>
             <select id="bc-motif"></select>
           </div>
-          <div class="field" style="max-width:120px"><label>N°</label><input id="bc-num" type="text"></div>
+          <div class="field" style="max-width:160px"><label>N°</label>
+            <div class="numwrap" id="bc-numwrap">
+              <input id="bc-num" type="text">
+              <span class="numfix" id="bc-num-suf">.26</span>
+            </div>
+          </div>
           <div class="field" style="max-width:170px"><label>Date</label><input id="bc-date" type="date"></div>
         </div>
         <datalist id="bc-prod-dl"></datalist>
@@ -1113,15 +1132,39 @@ function bumpBonSeq(canal,num,dateISO){
   if(n>(+settings.bonSeq[canal][y]||0)){ settings.bonSeq[canal][y]=n; save(KEY.set,settings); }
 }
 
+/* ---- N° du bon « semi-fixe » : préfixe (canal) + numéro éditable + .AA (année), tous recalculés ---- */
+function setNumField(full){
+  const canal=document.getElementById('f-canal').value||'ozone';
+  const c=CANAUX[canal]; const pre=c?c.prefix:''; const yy=yy2(document.getElementById('f-date').value);
+  const wrap=document.getElementById('f-numwrap'); const mid=document.getElementById('f-num-mid');
+  const px=pre.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const m=(full||'').match(new RegExp('^'+px+'0*(\\d+)\\.'+yy+'$','i'));
+  if(m){ wrap.classList.remove('raw'); document.getElementById('f-num-pre').textContent=pre; document.getElementById('f-num-suf').textContent='.'+yy; mid.value=m[1]; }
+  else { wrap.classList.add('raw'); mid.value=full||''; }   // ancien N° ou saisie libre → affiché brut
+  rebuildNum();
+}
+function rebuildNum(){
+  const wrap=document.getElementById('f-numwrap'); const mid=document.getElementById('f-num-mid').value.trim();
+  let full;
+  if(wrap.classList.contains('raw')){ full=mid; }
+  else {
+    const canal=document.getElementById('f-canal').value||'ozone';
+    const c=CANAUX[canal]; const pre=c?c.prefix:''; const yy=yy2(document.getElementById('f-date').value);
+    document.getElementById('f-num-pre').textContent=pre; document.getElementById('f-num-suf').textContent='.'+yy;
+    full = mid ? (pre+pad2(mid)+'.'+yy) : '';
+  }
+  document.getElementById('f-num').value=full; renderDoc();
+}
 /* ---- live update header fields ---- */
-['f-num','f-date','f-rep']
-  .forEach(id=>document.getElementById(id).addEventListener('input',renderDoc));
+['f-date','f-rep'].forEach(id=>document.getElementById(id).addEventListener('input',renderDoc));
+document.getElementById('f-num-mid').addEventListener('input',rebuildNum);
+document.getElementById('f-date').addEventListener('change',rebuildNum);
 document.getElementById('f-canal').addEventListener('change',()=>{
   const el=document.getElementById('editBadge');
   const editing=el&&el.style.display!=='none';
-  // en modification on ne réécrase pas le N° existant ; en création on propose le prochain N° du canal
-  if(!editing) document.getElementById('f-num').value=nextBonNum(document.getElementById('f-canal').value, document.getElementById('f-date').value);
-  renderDoc();
+  // création → propose le prochain N° du canal ; modification → garde le numéro, change juste le préfixe
+  if(!editing) setNumField(nextBonNum(document.getElementById('f-canal').value, document.getElementById('f-date').value));
+  else rebuildNum();
 });
 
 /* ============================================================
@@ -1286,9 +1329,9 @@ function resetForm(){
   current={id:null,lignes:[],client:{...dc}};
   document.getElementById('f-date').value=todayISO();
   const canal=(document.getElementById('f-canal')&&document.getElementById('f-canal').value)||'ozone';
-  document.getElementById('f-num').value=nextBonNum(canal,todayISO());
-  document.getElementById('f-rep').value=settings.rep||'';
   document.getElementById('editBadge').style.display='none';
+  setNumField(nextBonNum(canal,todayISO()));
+  document.getElementById('f-rep').value=settings.rep||'';
   renderFormLines(); renderDoc();
 }
 
@@ -1539,10 +1582,10 @@ function loadBon(id){
   const b=bons.find(z=>z.id===id); if(!b) return;
   current={id:b.id,lignes:b.lignes.map(l=>({...l})),client:{...(b.client||settings.defaultClient||{})}};
   document.getElementById('f-canal').value=b.canal||'ozone';
-  document.getElementById('f-num').value=b.num;
   document.getElementById('f-date').value=b.date;
-  document.getElementById('f-rep').value=b.rep;
   document.getElementById('editBadge').style.display='inline-block';
+  setNumField(b.num);
+  document.getElementById('f-rep').value=b.rep;
   autoSort();
   renderFormLines(); renderDoc(); gotoCreer();
 }
@@ -1552,9 +1595,9 @@ function duplicateBon(id){
   const canal=b.canal||'ozone';
   document.getElementById('f-canal').value=canal;
   document.getElementById('f-date').value=todayISO();
-  document.getElementById('f-num').value=nextBonNum(canal,todayISO());
-  document.getElementById('f-rep').value=b.rep;
   document.getElementById('editBadge').style.display='none';
+  setNumField(nextBonNum(canal,todayISO()));
+  document.getElementById('f-rep').value=b.rep;
   autoSort();
   renderFormLines(); renderDoc(); gotoCreer(); toast('Bon dupliqué — nouveau N°');
 }
@@ -2805,8 +2848,12 @@ function bcSyncKindUI(){
   const mw=document.getElementById('bc-motif-wrap'); const showMotif=(k==='sortie'||k==='retour');
   if(mw) mw.style.display=showMotif?'block':'none';
   if(showMotif){ bcFillMotifOptions(k); const ml=document.getElementById('bc-motif-label'); if(ml) ml.textContent=(k==='retour')?'Motif de retour':'Motif de sortie'; }
-  const n=document.getElementById('bc-num');
-  if(n){ if(k==='sortie'){ n.value=''; n.placeholder='N° du bon Ozon / CTM'; } else { n.value=bcCurNext(); n.placeholder=''; } }
+  const n=document.getElementById('bc-num'); const wrap=document.getElementById('bc-numwrap'); const suf=document.getElementById('bc-num-suf');
+  if(n){
+    if(k==='retour'){ n.value=''; n.placeholder='N° Ozone / CTM à coller'; if(wrap)wrap.classList.add('raw'); }
+    else if(k==='sortie'){ n.value=''; n.placeholder='N° du bon Ozon / CTM'; if(wrap)wrap.classList.add('raw'); }
+    else { n.value=bcCurNext(); n.placeholder=''; if(wrap)wrap.classList.remove('raw'); if(suf)suf.textContent='.'+yy2(document.getElementById('bc-date').value); }
+  }
 }
 function bcResetForm(){
   document.getElementById('bc-date').value=todayISO();
@@ -2839,9 +2886,10 @@ function bcSave(){
     const neg=Object.keys(agg).filter(k=>resteFor(k)-agg[k]<0);
     if(neg.length && !confirm('Attention : le reste deviendra négatif pour '+neg.join(', ')+'. Continuer ?')) return;
   }
-  let num=document.getElementById('bc-num').value.trim();
-  if(!isSortie && !num) num=String(bcCurNext());   // sortie : N° saisi à la main (bon Ozon / CTM), pas de compteur auto
   const date=document.getElementById('bc-date').value||todayISO();
+  let num=document.getElementById('bc-num').value.trim();
+  if(kind==='commande'){ if(!num) num=String(bcCurNext()); num=num+'.'+yy2(date); }   // bon de commande : numéro + .AA (année fixe)
+  // retour & sortie : N° collé à la main (réf Ozone/CTM), tel quel
   const fournisseur=kind==='commande'?'Magasin':'';
   const docId=uid();
   const storedLignes=lignes.map(l=>({ref:l.ref,des:l.des,qte:l.qte}));
@@ -2942,6 +2990,7 @@ function bcDocHTML(c){
 document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
 document.getElementById('bc-save').addEventListener('click',bcSave);
 document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
+document.getElementById('bc-date').addEventListener('change',()=>{ const suf=document.getElementById('bc-num-suf'); if(suf && bcKind()==='commande') suf.textContent='.'+yy2(document.getElementById('bc-date').value); });
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
 document.getElementById('bc-search').addEventListener('input',renderBcList);
 bcBody().addEventListener('click',e=>{ if(e.target.classList.contains('bc-del')){ e.target.closest('tr').remove(); bcEnsureLine(); } });
