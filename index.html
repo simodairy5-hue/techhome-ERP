@@ -66,13 +66,13 @@
     font-family:inherit;color:var(--ink);background:#fff;
   }
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,148,136,.15);}
-  .numwrap{display:flex;align-items:center;gap:2px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:0 11px;}
+  .numwrap{display:inline-flex;align-items:center;gap:1px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;padding:0 10px;max-width:100%;vertical-align:middle;}
   .numwrap:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px rgba(14,148,136,.15);}
-  .numwrap input{border:none;flex:1;min-width:30px;padding:9px 2px;width:auto;text-align:center;}
+  .numwrap input{border:none;width:60px;min-width:44px;padding:9px 2px;text-align:center;}
   .numwrap input:focus{box-shadow:none;}
   .numwrap .numfix{color:#64748b;font-weight:700;white-space:nowrap;font-size:14px;user-select:none;}
   .numwrap.raw .numfix{display:none;}
-  .numwrap.raw input{text-align:left;}
+  .numwrap.raw input{width:150px;text-align:left;}
   .row{display:flex;gap:10px;}
   .row>div{flex:1;}
   .field{margin-bottom:13px;}
@@ -2764,7 +2764,7 @@ function renderMouvements(){
   const to=document.getElementById('mv-to').value;
   const mvDetailView=document.getElementById('mv-detail')?document.getElementById('mv-detail').value:'cmd';
   let list=mouvements.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')||(b.createdAt||0)-(a.createdAt||0));
-  if(filt) list=list.filter(m=>stockKey(m.ref)===stockKey(filt));
+  if(filt) list=list.filter(m=>resolveKey(m.ref)===resolveKey(filt));
   if(ftype) list=list.filter(m=>m.type===ftype);
   if(from) list=list.filter(m=>(m.date||'')>=from);
   if(to) list=list.filter(m=>(m.date||'')<=to);
@@ -2810,7 +2810,7 @@ function renderMouvements(){
       </tr>`;
     } else {
       const open=mvExpanded.has(g.key);
-      const nbProd=new Set(g.lines.map(m=>stockKey(m.ref))).size;
+      const nbProd=new Set(g.lines.map(m=>resolveKey(m.ref))).size;
       const hasCmd=g.lines.some(m=>m.cmd);
       const e2=g.type==='entree';
       const label=nbProd+' produit'+(nbProd>1?'s':'')+(hasCmd?(' · '+g.lines.length+' commande'+(g.lines.length>1?'s':'')):'');
@@ -2824,7 +2824,7 @@ function renderMouvements(){
       if(open){
         if(mvDetailView==='prod'){
           const byRef={};
-          g.lines.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:m.ref,des:m.des,qte:0,cmds:[]}; byRef[k].qte+=(+m.qte||0); byRef[k].cmds.push(m); });
+          g.lines.forEach(m=>{ const k=resolveKey(m.ref); if(!byRef[k])byRef[k]={ref:k,des:m.des,qte:0,cmds:[]}; byRef[k].qte+=(+m.qte||0); byRef[k].cmds.push(m); });
           Object.values(byRef).sort((a,b)=>b.qte-a.qte).forEach(pr=>{
             const pk=g.key+'|'+stockKey(pr.ref); const popen=mvExpandedProd.has(pk); const multi=pr.cmds.length>1;
             html+=`<tr class="mv-sub" data-sub="${pk}" style="background:#f8fafc;${multi?'cursor:pointer':''}"><td></td>
@@ -2897,7 +2897,7 @@ function renderBilan(){
   const E=day.filter(m=>m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0);
   const S=day.filter(m=>m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0);
   const byRef={};
-  day.forEach(m=>{ const k=stockKey(m.ref); if(!byRef[k])byRef[k]={ref:k,e:0,s:0}; if(m.type==='entree')byRef[k].e+=+m.qte||0; else byRef[k].s+=+m.qte||0; });
+  day.forEach(m=>{ const k=resolveKey(m.ref); if(!byRef[k])byRef[k]={ref:k,e:0,s:0}; if(m.type==='entree')byRef[k].e+=+m.qte||0; else byRef[k].s+=+m.qte||0; });
   const rows=Object.values(byRef).sort((a,b)=>(b.e+b.s)-(a.e+a.s)).map(r=>`<div style="display:grid;grid-template-columns:1fr 54px 54px;gap:6px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:13px;align-items:center"><div style="font-weight:600">${esc(r.ref)}</div><div class="tcenter" style="color:#0b7a70;font-weight:600">+${r.e}</div><div class="tcenter" style="color:#b91c1c;font-weight:600">−${r.s}</div></div>`).join('');
   el.innerHTML=`
     <div style="display:flex;gap:10px;margin-bottom:12px">
@@ -3147,11 +3147,11 @@ function bilanDocHTML(d){
   const E=day.filter(m=>m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0);
   const S=day.filter(m=>m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0);
   const dayBy={};
-  day.forEach(m=>{ const k=stockKey(m.ref); if(!dayBy[k])dayBy[k]={e:0,s:0}; if(m.type==='entree')dayBy[k].e+=+m.qte||0; else dayBy[k].s+=+m.qte||0; });
+  day.forEach(m=>{ const k=resolveKey(m.ref); if(!dayBy[k])dayBy[k]={e:0,s:0}; if(m.type==='entree')dayBy[k].e+=+m.qte||0; else dayBy[k].s+=+m.qte||0; });
   // tous les produits du stock (+ éventuels produits ayant bougé ce jour mais absents du stock)
   const refs={};
-  stock.forEach(p=>{ const k=stockKey(p.ref); refs[k]={ref:p.ref,des:p.des||''}; });
-  Object.keys(dayBy).forEach(k=>{ if(!refs[k]) refs[k]={ref:k,des:(day.find(m=>stockKey(m.ref)===k)||{}).des||''}; });
+  stock.forEach(p=>{ const k=resolveKey(p.ref); if(!refs[k]) refs[k]={ref:k,des:p.des||''}; });
+  Object.keys(dayBy).forEach(k=>{ if(!refs[k]) refs[k]={ref:k,des:(day.find(m=>resolveKey(m.ref)===k)||{}).des||''}; });
   const list=Object.values(refs).sort((a,b)=>stockKey(a.ref).localeCompare(stockKey(b.ref)));
   const rows=list.map(r=>{ const d2=dayBy[stockKey(r.ref)]||{e:0,s:0}; return `<tr>
      <td class="ref">${esc(r.ref)}</td><td>${esc(r.des||(findStock(r.ref)||{}).des||'')}</td>
