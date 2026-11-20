@@ -1151,9 +1151,19 @@ function docHTML(b, opts){
   const pageCount = opts.pageCount || 1;
 
   const P=!HIDE_PRICES; // afficher les prix ?
-  const rows = pageRows.map((l,i)=>`
-    <tr><td class="no">${startNo+i+1}</td><td class="ref">${esc(l.ref)}</td><td class="des">${esc(l.des)}</td><td class="cmd">${esc(l.cmd)}</td>
-    <td class="qte">${l.qte}</td>${P?`<td class="pu">${fmt(l.pu)}</td><td class="mt">${fmt(l.qte*l.pu)}</td>`:''}</tr>`).join('');
+  const liv=(b.lignes||[]).filter(l=>!l.annule);           // commandes réellement livrées
+  const nbAnn=(b.lignes||[]).length-liv.length;            // nombre d'annulées / non parties
+  const rows = pageRows.map((l,i)=>{
+    const ann=!!l.annule;
+    const cross=ann?'text-decoration:line-through;color:#888':'';
+    const tag=ann?` <b style="text-decoration:none;color:#000">✗ NON PARTIE${l.annuleMotif?' ('+esc(l.annuleMotif)+')':''}</b>`:'';
+    return `<tr>
+      <td class="no" style="${cross}">${startNo+i+1}</td>
+      <td class="ref" style="${cross}">${esc(l.ref)}</td>
+      <td class="des"><span style="${cross}">${esc(l.des)}</span>${tag}</td>
+      <td class="cmd" style="${cross}">${esc(l.cmd)}</td>
+      <td class="qte" style="${cross}">${l.qte}</td>${P?`<td class="pu" style="${cross}">${fmt(l.pu)}</td><td class="mt" style="${cross}">${fmt(l.qte*l.pu)}</td>`:''}</tr>`;
+  }).join('');
   // lignes de remplissage : aperçu (1 page) → au moins 8 ; multipage → un peu sur la dernière page
   const emptyCols=P?6:4;
   let fillers=''; const minRows=(pageCount>1)?(showTotals?4:0):8;
@@ -1175,12 +1185,12 @@ function docHTML(b, opts){
   let recapBlock='';
   if(showTotals){
     const smap={};
-    b.lignes.forEach(l=>{ const k=(l.ref||l.des||'—').toUpperCase(); if(!smap[k]) smap[k]={qte:0,montant:0,des:l.des||l.ref||''}; smap[k].qte+=(l.qte||0); smap[k].montant+=(l.qte||0)*(l.pu||0); });
+    liv.forEach(l=>{ const k=(l.ref||l.des||'—').toUpperCase(); if(!smap[k]) smap[k]={qte:0,montant:0,des:l.des||l.ref||''}; smap[k].qte+=(l.qte||0); smap[k].montant+=(l.qte||0)*(l.pu||0); });
     const skeys=Object.keys(smap).sort((a,c)=>smap[c].qte-smap[a].qte);
     const recapRows=skeys.map(k=>`<tr><td class="ref">${esc(k)}</td><td>${esc(smap[k].des)}</td><td class="qte">${smap[k].qte}</td>${P?`<td class="mt">${fmt(smap[k].montant)}</td>`:''}</tr>`).join('');
     recapBlock=`
     <div class="recap">
-      <div class="recap-title">Récapitulatif par référence — ${skeys.length} réf · ${b.lignes.reduce((s,l)=>s+(l.qte||0),0)} unités</div>
+      <div class="recap-title">Récapitulatif par référence — ${skeys.length} réf · ${liv.reduce((s,l)=>s+(l.qte||0),0)} unités livrées${nbAnn?' · '+nbAnn+' annulée(s)':''}</div>
       <table class="recap-tbl">
         <thead><tr><th>Référence</th><th>Désignation</th><th>Qté</th>${P?'<th>Montant</th>':''}</tr></thead>
         <tbody>${recapRows}</tbody>
@@ -1188,11 +1198,12 @@ function docHTML(b, opts){
     </div>`;
   }
 
-  const totalQte=b.lignes.reduce((s,l)=>s+(l.qte||0),0);
+  const totalQte=liv.reduce((s,l)=>s+(l.qte||0),0);
+  const totalLiv=liv.reduce((s,l)=>s+(l.qte||0)*(l.pu||0),0);
   const totalsBlock = showTotals ? `
   <div class="tot-wrap" style="justify-content:space-between;align-items:flex-end">
-    <div style="font-size:12px;font-weight:600">Nombre de lignes : ${b.lignes.length}</div>
-    <div class="tot-box"><div class="tlab">${P?'Montant Total':'Total quantité'}</div><div class="tval">${P?fmt(b.total):totalQte}</div></div>
+    <div style="font-size:12px;font-weight:600">Lignes livrées : ${liv.length}${nbAnn?` <span style="color:#000">· ${nbAnn} annulée(s) sur ${b.lignes.length}</span>`:''}</div>
+    <div class="tot-box"><div class="tlab">${P?'Montant Total':'Total quantité'}</div><div class="tval">${P?fmt(totalLiv):totalQte}</div></div>
   </div>
   ${recapBlock}
   <div class="sign">
