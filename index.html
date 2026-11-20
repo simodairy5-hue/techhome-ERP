@@ -1537,9 +1537,9 @@ function applyDecompte(bonId, motif){
 let decPreview=null;
 function prodInCatalogue(ref){ const k=resolveKey(ref); return (products||[]).some(p=>resolveKey(p.ref)===k); }
 function decTargets(){
+  // uniquement les produits réellement en stock (comme « Stock actuel »), pas l'ancien catalogue
   const t={};
-  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(k&&!t[k]) t[k]={ref:k,des:s.des||''}; });
-  (products||[]).forEach(p=>{ const k=resolveKey(p.ref); if(k&&!t[k]) t[k]={ref:k,des:p.des||''}; });
+  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(!k) return; const isCanon=stockKey(s.ref)===k; if(!t[k]) t[k]={ref:k,des:s.des||''}; else if(isCanon && s.des) t[k].des=s.des; });
   return t;
 }
 function openDecomptePreview(b, motif, lines){
@@ -2680,9 +2680,8 @@ function renderStock(){
   (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(!k) return; const isCanon=stockKey(s.ref)===k; const cur=byKey[k]; if(!cur){ byKey[k]={ref:k,des:s.des||'',_c:isCanon}; } else if(isCanon){ if(s.des) cur.des=s.des; cur._c=true; } else if(!cur._c && !cur.des && s.des){ cur.des=s.des; } });
   document.getElementById('stk-count').textContent=Object.keys(byKey).length;
   let list=Object.values(byKey).sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
-  // cibles possibles pour « Relier » : produits du stock + du catalogue
+  // cibles possibles pour « Relier » : uniquement les produits réellement en stock
   const targets={}; Object.keys(byKey).forEach(k=>targets[k]={ref:k,des:byKey[k].des});
-  (products||[]).forEach(p=>{ const k=resolveKey(p.ref); if(k && !targets[k]) targets[k]={ref:k,des:p.des||''}; });
   const links=settings.prodLinks||{};
   if(terms.length){ list=list.filter(s=>{ const h=((s.ref||'')+' '+(s.des||'')).toLowerCase(); return terms.every(t=>h.includes(t)); }); }
   const emptyEl=document.getElementById('stk-empty');
