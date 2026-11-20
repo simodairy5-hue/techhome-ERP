@@ -476,6 +476,7 @@
         <div class="panel">
           <div class="panel-h" style="flex-wrap:wrap;gap:8px">Stock actuel <span id="stk-count" class="pill"></span>
             <input id="stk-search" type="text" placeholder="🔍 Rechercher un produit…" style="margin-left:auto;max-width:240px;width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
+            <button class="btn btn-ghost btn-sm" id="stk-merge">🔗 Fusionner les doublons</button>
             <button class="btn btn-ghost btn-sm" id="stk-sync">Importer les produits connus</button>
           </div>
           <div class="panel-b scroll-list" style="padding:0">
@@ -2487,7 +2488,8 @@ async function exportSimplePDF(html,fname){
 /* ============================================================
    STOCK
 ============================================================ */
-function stockKey(ref){ return (ref||'').toUpperCase().replace(/\s+/g,''); }
+/* clé produit : on ignore casse, espaces, tirets, points… (DVD188 = DVD-188 = dvd 188) */
+function stockKey(ref){ return (ref||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
 function findStock(ref){ const k=stockKey(ref); return stock.find(s=>stockKey(s.ref)===k); }
 /* totaux calculés depuis le journal des mouvements */
 function entreesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0); }
@@ -2500,6 +2502,32 @@ function ensureProduct(ref,des){
   if(!s){ s={ref:k,des:des||k}; stock.push(s); }
   else if(des) s.des=des;
   return s;
+}
+/* fusionne définitivement les produits écrits de plusieurs façons (DVD188 / DVD-188) */
+function mergeDuplicates(){
+  const keys=new Set(); const cnt={};
+  (stock||[]).forEach(s=>{ const k=stockKey(s.ref); cnt[k]=(cnt[k]||0)+1; });
+  Object.keys(cnt).forEach(k=>{ if(cnt[k]>1) keys.add(k); });
+  (mouvements||[]).forEach(m=>{ if(m.ref!==stockKey(m.ref)) keys.add(stockKey(m.ref)); });
+  (products||[]).forEach(p=>{ if(p.ref!==stockKey(p.ref)) keys.add(stockKey(p.ref)); });
+  if(!keys.size){ toast('Aucun doublon à fusionner ✓'); return; }
+  if(!confirm('Fusionner '+keys.size+' produit(s) écrit(s) de plusieurs façons ?\nLes mouvements seront regroupés sous une seule référence et désignation.\n(À faire une fois — c\'est définitif.)')) return;
+  keys.forEach(k=>{
+    const freq={};
+    mouvements.forEach(m=>{ if(stockKey(m.ref)===k && m.des) freq[m.des]=(freq[m.des]||0)+1; });
+    stock.forEach(s=>{ if(stockKey(s.ref)===k && s.des) freq[s.des]=(freq[s.des]||0)+0.5; });
+    let des=k, best=-1; Object.keys(freq).forEach(d=>{ if(freq[d]>best){ best=freq[d]; des=d; } });
+    mouvements.forEach(m=>{ if(stockKey(m.ref)===k){ m.ref=k; m.des=des; } });
+    commandes.forEach(c=>(c.lignes||[]).forEach(l=>{ if(stockKey(l.ref)===k){ l.ref=k; l.des=des; } }));
+    products.forEach(p=>{ if(stockKey(p.ref)===k){ p.ref=k; p.des=des; } });
+    let kept=false;
+    stock=stock.filter(s=>{ if(stockKey(s.ref)!==k) return true; if(kept) return false; kept=true; s.ref=k; s.des=des; return true; });
+  });
+  save(KEY.stock,stock); save(KEY.mouv,mouvements); save(KEY.cmd,commandes); save(KEY.prod,products);
+  logAudit('modification','Fusion des doublons — '+keys.size+' référence(s) regroupée(s)');
+  try{ refreshProdSelect(); renderCatalogue(); }catch(e){}
+  renderStock();
+  toast(keys.size+' produit(s) fusionné(s) ✓');
 }
 /* enregistre un produit vu à l'import */
 function registerStockRef(ref,des){
@@ -2526,6 +2554,7 @@ document.getElementById('stk-sync').addEventListener('click',()=>{
   renderStock();
   toast(n?(n+' produit(s) ajouté(s) au stock ✓'):'Tous les produits connus sont déjà dans le stock');
 });
+document.getElementById('stk-merge').addEventListener('click',mergeDuplicates);
 /* mouvement rapide depuis le tableau, avec la quantité saisie dans la ligne */
 function stkMove(ref,type,qte){
   qte=parseInt(qte)||0; if(qte<=0){ toast('Indique une quantité',true); return; }
@@ -2565,10 +2594,13 @@ function renderStock(){
   const tb=document.querySelector('#stk-table tbody'); if(!tb) return;
   renderStkProdSelect();
   try{ renderBcProdList(); }catch(e){}   // garde la liste de recherche produit synchro avec le stock
-  document.getElementById('stk-count').textContent=stock.length;
   const q=(stkSearch||'').trim().toLowerCase();
   const terms=q.split(/\s+/).filter(Boolean);
-  let list=stock.slice().sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
+  // dédoublonnage : réfs écrites différemment (DVD188 / DVD-188) = un seul produit, comptes regroupés
+  const byKey={};
+  (stock||[]).forEach(s=>{ const k=stockKey(s.ref); if(!k) return; const exact=mouvements.filter(m=>m.ref===s.ref).length; const cur=byKey[k]; if(!cur){ byKey[k]={ref:k,des:s.des||'',_s:exact}; } else if(exact>cur._s){ cur.des=s.des||cur.des; cur._s=exact; } else if(!cur.des && s.des){ cur.des=s.des; } });
+  document.getElementById('stk-count').textContent=Object.keys(byKey).length;
+  let list=Object.values(byKey).sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
   if(terms.length){ list=list.filter(s=>{ const h=((s.ref||'')+' '+(s.des||'')).toLowerCase(); return terms.every(t=>h.includes(t)); }); }
   const emptyEl=document.getElementById('stk-empty');
   const noResult=terms.length && !list.length && stock.length;
