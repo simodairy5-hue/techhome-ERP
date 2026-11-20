@@ -476,7 +476,6 @@
         <div class="panel">
           <div class="panel-h" style="flex-wrap:wrap;gap:8px">Stock actuel <span id="stk-count" class="pill"></span>
             <input id="stk-search" type="text" placeholder="🔍 Rechercher un produit…" style="margin-left:auto;max-width:240px;width:100%;padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
-            <button class="btn btn-ghost btn-sm" id="stk-merge">🔗 Fusionner les doublons</button>
             <button class="btn btn-ghost btn-sm" id="stk-sync">Importer les produits connus</button>
           </div>
           <div class="panel-b scroll-list" style="padding:0">
@@ -897,6 +896,7 @@ function normSettings(){
   if(!settings.garNext) settings.garNext=1;
   if(!settings.cmdNext) settings.cmdNext=1;
   if(!settings.retNext) settings.retNext=1;
+  if(!settings.prodLinks) settings.prodLinks={};
   if(!settings.sortNext) settings.sortNext=1;
   if(!settings.garConditions) settings.garConditions=CONDITIONS_DEFAUT;
   if(!settings.garDuree) settings.garDuree='1 an';
@@ -2488,12 +2488,16 @@ async function exportSimplePDF(html,fname){
 /* ============================================================
    STOCK
 ============================================================ */
-/* clé produit : on ignore casse, espaces, tirets, points… (DVD188 = DVD-188 = dvd 188) */
-function stockKey(ref){ return (ref||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
-function findStock(ref){ const k=stockKey(ref); return stock.find(s=>stockKey(s.ref)===k); }
-/* totaux calculés depuis le journal des mouvements */
-function entreesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0); }
-function sortiesFor(ref){ const k=stockKey(ref); return mouvements.filter(m=>stockKey(m.ref)===k && m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0); }
+/* clé produit : casse + espaces ignorés (les réfs restent distinctes ; on les relie à la main) */
+function stockKey(ref){ return (ref||'').toUpperCase().replace(/\s+/g,''); }
+/* clé « souple » (ignore aussi tirets, points…) — sert seulement à détecter les ressemblances */
+function softKey(ref){ return (ref||'').toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* si une réf a été reliée à un autre produit, renvoie la réf canonique */
+function resolveKey(ref){ let k=stockKey(ref); const L=settings.prodLinks||{}; let i=0; while(L[k] && L[k]!==k && i<8){ k=L[k]; i++; } return k; }
+function findStock(ref){ const k=resolveKey(ref); return stock.find(s=>resolveKey(s.ref)===k); }
+/* totaux calculés depuis le journal des mouvements (réfs reliées comptées ensemble) */
+function entreesFor(ref){ const k=resolveKey(ref); return mouvements.filter(m=>resolveKey(m.ref)===k && m.type==='entree').reduce((a,m)=>a+(+m.qte||0),0); }
+function sortiesFor(ref){ const k=resolveKey(ref); return mouvements.filter(m=>resolveKey(m.ref)===k && m.type==='sortie').reduce((a,m)=>a+(+m.qte||0),0); }
 function resteFor(ref){ return entreesFor(ref)-sortiesFor(ref); }
 /* crée/complète un produit dans le registre */
 function ensureProduct(ref,des){
@@ -2503,31 +2507,22 @@ function ensureProduct(ref,des){
   else if(des) s.des=des;
   return s;
 }
-/* fusionne définitivement les produits écrits de plusieurs façons (DVD188 / DVD-188) */
-function mergeDuplicates(){
-  const keys=new Set(); const cnt={};
-  (stock||[]).forEach(s=>{ const k=stockKey(s.ref); cnt[k]=(cnt[k]||0)+1; });
-  Object.keys(cnt).forEach(k=>{ if(cnt[k]>1) keys.add(k); });
-  (mouvements||[]).forEach(m=>{ if(m.ref!==stockKey(m.ref)) keys.add(stockKey(m.ref)); });
-  (products||[]).forEach(p=>{ if(p.ref!==stockKey(p.ref)) keys.add(stockKey(p.ref)); });
-  if(!keys.size){ toast('Aucun doublon à fusionner ✓'); return; }
-  if(!confirm('Fusionner '+keys.size+' produit(s) écrit(s) de plusieurs façons ?\nLes mouvements seront regroupés sous une seule référence et désignation.\n(À faire une fois — c\'est définitif.)')) return;
-  keys.forEach(k=>{
-    const freq={};
-    mouvements.forEach(m=>{ if(stockKey(m.ref)===k && m.des) freq[m.des]=(freq[m.des]||0)+1; });
-    stock.forEach(s=>{ if(stockKey(s.ref)===k && s.des) freq[s.des]=(freq[s.des]||0)+0.5; });
-    let des=k, best=-1; Object.keys(freq).forEach(d=>{ if(freq[d]>best){ best=freq[d]; des=d; } });
-    mouvements.forEach(m=>{ if(stockKey(m.ref)===k){ m.ref=k; m.des=des; } });
-    commandes.forEach(c=>(c.lignes||[]).forEach(l=>{ if(stockKey(l.ref)===k){ l.ref=k; l.des=des; } }));
-    products.forEach(p=>{ if(stockKey(p.ref)===k){ p.ref=k; p.des=des; } });
-    let kept=false;
-    stock=stock.filter(s=>{ if(stockKey(s.ref)!==k) return true; if(kept) return false; kept=true; s.ref=k; s.des=des; return true; });
-  });
-  save(KEY.stock,stock); save(KEY.mouv,mouvements); save(KEY.cmd,commandes); save(KEY.prod,products);
-  logAudit('modification','Fusion des doublons — '+keys.size+' référence(s) regroupée(s)');
-  try{ refreshProdSelect(); renderCatalogue(); }catch(e){}
-  renderStock();
-  toast(keys.size+' produit(s) fusionné(s) ✓');
+/* relie une réf à un produit canonique : ses mouvements seront comptés ensemble (réversible) */
+function linkProduct(srcRef,targetRef){
+  const s=stockKey(srcRef), t=resolveKey(targetRef);
+  stkLinking=null;
+  if(!s||!t||s===t){ renderStock(); return; }
+  if(resolveKey(t)===s){ toast('Lien impossible (ça ferait une boucle)',true); renderStock(); return; }
+  settings.prodLinks=settings.prodLinks||{}; settings.prodLinks[s]=t; save(KEY.set,settings);
+  logAudit('modification','Produit relié — '+s+' → '+t);
+  try{ renderBcProdList(); refreshProdSelect(); }catch(e){}
+  renderStock(); toast('« '+s+' » relié à « '+t+' » ✓');
+}
+function unlinkProduct(variantKey){
+  const k=stockKey(variantKey);
+  if(settings.prodLinks && settings.prodLinks[k]){ delete settings.prodLinks[k]; save(KEY.set,settings); logAudit('modification','Produit délié — '+k); }
+  try{ renderBcProdList(); refreshProdSelect(); }catch(e){}
+  renderStock(); toast('« '+k+' » délié ✓');
 }
 /* enregistre un produit vu à l'import */
 function registerStockRef(ref,des){
@@ -2554,7 +2549,6 @@ document.getElementById('stk-sync').addEventListener('click',()=>{
   renderStock();
   toast(n?(n+' produit(s) ajouté(s) au stock ✓'):'Tous les produits connus sont déjà dans le stock');
 });
-document.getElementById('stk-merge').addEventListener('click',mergeDuplicates);
 /* mouvement rapide depuis le tableau, avec la quantité saisie dans la ligne */
 function stkMove(ref,type,qte){
   qte=parseInt(qte)||0; if(qte<=0){ toast('Indique une quantité',true); return; }
@@ -2567,6 +2561,7 @@ function stkMove(ref,type,qte){
   toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' ✓');
 }
 let stkEditing=null;   // réf en cours de modification (null = aucune)
+let stkLinking=null;   // réf en cours de liaison (null = aucune)
 let stkSearch='';      // recherche produit dans le tableau Stock
 let mvExpanded=new Set();   // bons dépliés dans le journal (par cmdId)
 let mvExpandedProd=new Set(); // produits dépliés dans la vue « par produit »
@@ -2596,11 +2591,15 @@ function renderStock(){
   try{ renderBcProdList(); }catch(e){}   // garde la liste de recherche produit synchro avec le stock
   const q=(stkSearch||'').trim().toLowerCase();
   const terms=q.split(/\s+/).filter(Boolean);
-  // dédoublonnage : réfs écrites différemment (DVD188 / DVD-188) = un seul produit, comptes regroupés
+  // regroupement par réf canonique : les produits reliés comptent ensemble
   const byKey={};
-  (stock||[]).forEach(s=>{ const k=stockKey(s.ref); if(!k) return; const exact=mouvements.filter(m=>m.ref===s.ref).length; const cur=byKey[k]; if(!cur){ byKey[k]={ref:k,des:s.des||'',_s:exact}; } else if(exact>cur._s){ cur.des=s.des||cur.des; cur._s=exact; } else if(!cur.des && s.des){ cur.des=s.des; } });
+  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(!k) return; const isCanon=stockKey(s.ref)===k; const cur=byKey[k]; if(!cur){ byKey[k]={ref:k,des:s.des||'',_c:isCanon}; } else if(isCanon){ if(s.des) cur.des=s.des; cur._c=true; } else if(!cur._c && !cur.des && s.des){ cur.des=s.des; } });
   document.getElementById('stk-count').textContent=Object.keys(byKey).length;
   let list=Object.values(byKey).sort((a,b)=>resteFor(a.ref)-resteFor(b.ref));
+  // cibles possibles pour « Relier » : produits du stock + du catalogue
+  const targets={}; Object.keys(byKey).forEach(k=>targets[k]={ref:k,des:byKey[k].des});
+  (products||[]).forEach(p=>{ const k=resolveKey(p.ref); if(k && !targets[k]) targets[k]={ref:k,des:p.des||''}; });
+  const links=settings.prodLinks||{};
   if(terms.length){ list=list.filter(s=>{ const h=((s.ref||'')+' '+(s.des||'')).toLowerCase(); return terms.every(t=>h.includes(t)); }); }
   const emptyEl=document.getElementById('stk-empty');
   const noResult=terms.length && !list.length && stock.length;
@@ -2622,9 +2621,21 @@ function renderStock(){
           <button class="btn btn-ghost btn-sm" data-editcancel="1">Annuler</button>
         </td></tr>`;
     }
+    if(stkLinking && s.ref===stkLinking){
+      const opts=Object.values(targets).filter(x=>x.ref!==s.ref).sort((a,b)=>a.ref.localeCompare(b.ref)).map(x=>`<option value="${esc(x.ref)}">${esc(x.ref)}${x.des?' — '+esc(x.des):''}</option>`).join('');
+      return `<tr style="background:#eff6ff"><td colspan="6" style="padding:10px 8px">
+        <b>Relier « ${esc(s.ref)} » au produit :</b>
+        <select class="stk-linksel" style="max-width:320px;width:auto;margin:0 8px;${inp}">${opts}</select>
+        <button class="btn btn-primary btn-sm" data-linkok="${esc(s.ref)}">🔗 Relier</button>
+        <button class="btn btn-ghost btn-sm" data-linkcancel="1">Annuler</button>
+        <div style="font-size:11px;color:var(--muted);margin-top:5px">Les deux réfs seront comptées comme un seul produit. Réversible (bouton ✕ ensuite).</div>
+      </td></tr>`;
+    }
+    const variants=Object.keys(links).filter(v=>resolveKey(v)===s.ref && v!==s.ref);
+    const chips=variants.length?`<div style="margin-top:3px">${variants.map(v=>`<span class="cmd-badge" style="background:#eef2ff;color:#3730a3;margin-right:4px">🔗 ${esc(v)} <a href="#" data-unlink="${esc(v)}" style="color:#b42318;text-decoration:none;font-weight:700" title="Délier">✕</a></span>`).join('')}</div>`:'';
     return `<tr>
       <td style="font-weight:600">${esc(s.ref)}</td>
-      <td>${esc(s.des)||'—'}</td>
+      <td>${esc(s.des)||'—'}${chips}</td>
       <td class="tcenter" style="color:#0b7a70;font-weight:600">${E}</td>
       <td class="tcenter" style="color:#b91c1c;font-weight:600">${S}</td>
       <td class="tcenter"><span class="cmd-badge">${R}</span></td>
@@ -2632,16 +2643,21 @@ function renderStock(){
         <input type="number" min="1" value="1" data-qty="${esc(s.ref)}" style="width:56px;padding:5px;text-align:center;border:1px solid #cbd5e1;border-radius:6px;font-size:13px">
         <button class="btn btn-ghost btn-sm" data-in="${esc(s.ref)}" title="Entrée">+ Entrée</button>
         <button class="btn btn-ghost btn-sm" data-out="${esc(s.ref)}" title="Sortie">− Sortie</button>
+        <button class="btn btn-ghost btn-sm" data-link="${esc(s.ref)}" title="Relier à un autre produit">🔗</button>
         <button class="btn btn-ghost btn-sm" data-edit="${esc(s.ref)}" title="Modifier réf/désignation">✏️</button>
         <button class="btn btn-danger btn-sm" data-del="${esc(s.ref)}">Suppr.</button>
       </td></tr>`;}).join('');
   const qtyOf=ref=>{ const el=tb.querySelector(`[data-qty="${CSS.escape(ref)}"]`); return el?el.value:1; };
   tb.querySelectorAll('[data-in]').forEach(b=>b.onclick=()=>stkMove(b.dataset.in,'entree',qtyOf(b.dataset.in)));
   tb.querySelectorAll('[data-out]').forEach(b=>b.onclick=()=>stkMove(b.dataset.out,'sortie',qtyOf(b.dataset.out)));
-  tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ stkEditing=stockKey(b.dataset.edit); renderStock(); });
+  tb.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ stkLinking=null; stkEditing=stockKey(b.dataset.edit); renderStock(); });
   tb.querySelectorAll('[data-editcancel]').forEach(b=>b.onclick=()=>{ stkEditing=null; renderStock(); });
   tb.querySelectorAll('[data-editsave]').forEach(b=>b.onclick=()=>{ const tr=b.closest('tr'); stkEdit(b.dataset.editsave, tr.querySelector('.stk-eref').value.trim(), tr.querySelector('.stk-edes').value.trim()); });
-  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=stockKey(b.dataset.del); const nMv=mouvements.filter(m=>stockKey(m.ref)===k).length; stock=stock.filter(x=>stockKey(x.ref)!==k); mouvements=mouvements.filter(m=>stockKey(m.ref)!==k); save(KEY.stock,stock); save(KEY.mouv,mouvements); logAudit('suppression','Produit retiré du stock — '+k+' ('+nMv+' mouvement(s) supprimé(s))'); renderStock(); } });
+  tb.querySelectorAll('[data-link]').forEach(b=>b.onclick=()=>{ stkEditing=null; stkLinking=resolveKey(b.dataset.link); renderStock(); });
+  tb.querySelectorAll('[data-linkcancel]').forEach(b=>b.onclick=()=>{ stkLinking=null; renderStock(); });
+  tb.querySelectorAll('[data-linkok]').forEach(b=>b.onclick=()=>{ const tr=b.closest('tr'); const sel=tr.querySelector('.stk-linksel'); if(sel&&sel.value) linkProduct(b.dataset.linkok, sel.value); });
+  tb.querySelectorAll('[data-unlink]').forEach(a=>a.onclick=(e)=>{ e.preventDefault(); unlinkProduct(a.dataset.unlink); });
+  tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=resolveKey(b.dataset.del); const nMv=mouvements.filter(m=>resolveKey(m.ref)===k).length; stock=stock.filter(x=>resolveKey(x.ref)!==k); mouvements=mouvements.filter(m=>resolveKey(m.ref)!==k); if(settings.prodLinks){ Object.keys(settings.prodLinks).forEach(v=>{ if(resolveKey(v)===k) delete settings.prodLinks[v]; }); save(KEY.set,settings); } save(KEY.stock,stock); save(KEY.mouv,mouvements); logAudit('suppression','Produit retiré du stock — '+k+' ('+nMv+' mouvement(s) supprimé(s))'); renderStock(); } });
   renderMouvements(); renderBilan();
 }
 /* origine lisible d'un mouvement (pour le journal) */
@@ -2828,7 +2844,7 @@ function bcFillMotifOptions(kind){
 function bcProducts(){
   // uniquement les produits réellement dans le stock (supprimer du stock = disparaît d'ici)
   const map={};
-  (stock||[]).forEach(s=>{ const k=stockKey(s.ref); if(!k||map[k]) return; map[k]={ref:k,des:s.des||''}; });
+  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(!k) return; if(!map[k]) map[k]={ref:k,des:s.des||''}; else if(stockKey(s.ref)===k && s.des) map[k].des=s.des; });
   return Object.values(map).sort((a,b)=>a.ref.localeCompare(b.ref));
 }
 function bcProdDes(ref){ const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref)); return p?(p.des||''):''; }
@@ -2906,7 +2922,17 @@ function bcSave(){
   const lignes=bcCollect();
   if(!lignes.length){ toast('Choisis au moins un produit avec une quantité',true); return; }
   const nouveaux=[...new Set(lignes.filter(l=>l.isNew).map(l=>l.ref))];
-  if(nouveaux.length && !confirm('Créer '+nouveaux.length+' nouveau(x) produit(s) : '+nouveaux.join(', ')+' ?\n(Vérifie que ce n\'est pas une faute de frappe d\'un produit déjà existant.)')) return;
+  // réfs inconnues qui RESSEMBLENT à un produit existant → proposer de les relier
+  const stillNew=[];
+  nouveaux.forEach(nref=>{
+    const sk=softKey(nref);
+    const match=bcProducts().find(p=>softKey(p.ref)===sk && resolveKey(p.ref)!==resolveKey(nref));
+    if(match && confirm('« '+nref+' » ressemble à « '+match.ref+' » déjà en stock.\nLes relier (même produit) ?\n\nOK = relier · Annuler = créer un nouveau produit')){
+      settings.prodLinks=settings.prodLinks||{}; settings.prodLinks[stockKey(nref)]=resolveKey(match.ref);
+    } else { stillNew.push(nref); }
+  });
+  save(KEY.set,settings);
+  if(stillNew.length && !confirm('Créer '+stillNew.length+' nouveau(x) produit(s) : '+stillNew.join(', ')+' ?\n(Vérifie que ce n\'est pas une faute de frappe d\'un produit déjà existant.)')) return;
   const kind=bcKind();
   const isSortie=kind==='sortie';
   const isRetour=kind==='retour';
