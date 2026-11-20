@@ -260,6 +260,13 @@
         <div class="panel">
           <div class="panel-h">Détails du bon <span id="editBadge" class="pill" style="display:none">Modification</span></div>
           <div class="panel-b">
+            <div class="field"><label>Canal</label>
+              <select id="f-canal">
+                <option value="ozone">Ozone</option>
+                <option value="ctm">CTM</option>
+                <option value="directe">Vente directe</option>
+              </select>
+            </div>
             <div class="row">
               <div class="field"><label>N° du bon</label><input id="f-num" type="text"></div>
               <div class="field"><label>Date</label><input id="f-date" type="date"></div>
@@ -1096,9 +1103,51 @@ function renderSummary(){
     ${rows}`;
 }
 
+/* ---- numérotation par canal (reset chaque année) ---- */
+const CANAUX={
+  ozone:{prefix:'ozon',motif:'vente',label:'Ozone'},
+  ctm:{prefix:'CTM',motif:'ctm',label:'CTM'},
+  directe:{prefix:'VD',motif:'vente_directe',label:'Vente directe'}
+};
+function yy2(d){ const dt=d?new Date(d):new Date(); return String(dt.getFullYear()).slice(-2); }
+function pad2(n){ return String(n).padStart(2,'0'); }
+function seqFromBons(canal,y){
+  const c=CANAUX[canal]; if(!c) return 0;
+  const px=c.prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const re=new RegExp('^'+px+'0*(\\d+)\\.'+y+'$','i');
+  let mx=0;
+  (bons||[]).forEach(b=>{ const m=(b.num||'').match(re); if(m){ const n=parseInt(m[1],10); if(n>mx)mx=n; } });
+  return mx;
+}
+function nextBonNum(canal,dateISO){
+  const c=CANAUX[canal]; if(!c) return '';
+  const y=yy2(dateISO);
+  const fromSeq=+((settings.bonSeq&&settings.bonSeq[canal]&&settings.bonSeq[canal][y])||0);
+  const last=Math.max(fromSeq, seqFromBons(canal,y));
+  return c.prefix+pad2(last+1)+'.'+y;
+}
+function bumpBonSeq(canal,num,dateISO){
+  const c=CANAUX[canal]; if(!c) return;
+  const y=yy2(dateISO);
+  const px=c.prefix.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const m=(num||'').match(new RegExp('^'+px+'0*(\\d+)\\.'+y+'$','i'));
+  if(!m) return;
+  const n=parseInt(m[1],10); if(!n) return;
+  settings.bonSeq=settings.bonSeq||{};
+  settings.bonSeq[canal]=settings.bonSeq[canal]||{};
+  if(n>(+settings.bonSeq[canal][y]||0)){ settings.bonSeq[canal][y]=n; save(KEY.set,settings); }
+}
+
 /* ---- live update header fields ---- */
 ['f-num','f-date','f-rep']
   .forEach(id=>document.getElementById(id).addEventListener('input',renderDoc));
+document.getElementById('f-canal').addEventListener('change',()=>{
+  const el=document.getElementById('editBadge');
+  const editing=el&&el.style.display!=='none';
+  // en modification on ne réécrase pas le N° existant ; en création on propose le prochain N° du canal
+  if(!editing) document.getElementById('f-num').value=nextBonNum(document.getElementById('f-canal').value, document.getElementById('f-date').value);
+  renderDoc();
+});
 
 /* ============================================================
    RENDU DU DOCUMENT A4
@@ -1109,6 +1158,7 @@ function buildBonFromForm(){
   return {
     id: current.id,
     num: document.getElementById('f-num').value.trim(),
+    canal: document.getElementById('f-canal').value||'ozone',
     date: document.getElementById('f-date').value,
     rep: document.getElementById('f-rep').value.trim()||settings.rep||'',
     client:{ nom:cli.nom||'', code:cli.code||'', ville:cli.ville||'' },
@@ -1237,6 +1287,7 @@ function saveCurrent(){
     const n=parseInt(b.num);
     if(!isNaN(n) && n>=settings.next){ settings.next=n+1; save(KEY.set,settings); }
   }
+  bumpBonSeq(b.canal,b.num,b.date);
   save(KEY.bon,bons); renderHistorique();
   toast('Bon enregistré ✓');
   return b;
@@ -1247,8 +1298,9 @@ document.getElementById('btn-new').addEventListener('click',()=>resetForm());
 function resetForm(){
   const dc=settings.defaultClient||{nom:'',code:'',ville:''};
   current={id:null,lignes:[],client:{...dc}};
-  document.getElementById('f-num').value=settings.next||1;
   document.getElementById('f-date').value=todayISO();
+  const canal=(document.getElementById('f-canal')&&document.getElementById('f-canal').value)||'ozone';
+  document.getElementById('f-num').value=nextBonNum(canal,todayISO());
   document.getElementById('f-rep').value=settings.rep||'';
   document.getElementById('editBadge').style.display='none';
   renderFormLines(); renderDoc();
@@ -1357,7 +1409,7 @@ function renderHistorique(){
     const stockCell = b.stockDone
       ? `<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">✓ Décompté${b.stockMotif?' · '+esc(sortMotifLabel(b.stockMotif)):''}</span>${nbAnn?'<br><span class="cmd-badge" style="background:#eef2f7;color:#475569;margin-top:3px;display:inline-block">'+nbAnn+' annulée(s)</span>':''}<br><button class="btn btn-ghost btn-sm" data-undo="${b.id}" style="margin-top:4px">Annuler le décompte</button>`
       : `<select class="hist-motif" data-m="${b.id}" style="padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">
-           <option value="vente">Vente</option><option value="vente_directe">Vente directe</option><option value="ctm">CTM</option>
+           ${[['vente','Vente'],['vente_directe','Vente directe'],['ctm','CTM']].map(o=>`<option value="${o[0]}"${o[0]===((CANAUX[b.canal]&&CANAUX[b.canal].motif)||'vente')?' selected':''}>${o[1]}</option>`).join('')}
          </select><br><button class="btn btn-primary btn-sm" data-dec="${b.id}" style="margin-top:4px">Décompter du stock</button>`;
     let main=`
     <tr>
@@ -1502,6 +1554,7 @@ function gotoCreer(){ document.querySelector('.tab[data-view="creer"]').click();
 function loadBon(id){
   const b=bons.find(z=>z.id===id); if(!b) return;
   current={id:b.id,lignes:b.lignes.map(l=>({...l})),client:{...(b.client||settings.defaultClient||{})}};
+  document.getElementById('f-canal').value=b.canal||'ozone';
   document.getElementById('f-num').value=b.num;
   document.getElementById('f-date').value=b.date;
   document.getElementById('f-rep').value=b.rep;
@@ -1512,8 +1565,10 @@ function loadBon(id){
 function duplicateBon(id){
   const b=bons.find(z=>z.id===id); if(!b) return;
   current={id:null,lignes:b.lignes.map(l=>({...l})),client:{...(b.client||settings.defaultClient||{})}};
-  document.getElementById('f-num').value=settings.next||1;
+  const canal=b.canal||'ozone';
+  document.getElementById('f-canal').value=canal;
   document.getElementById('f-date').value=todayISO();
+  document.getElementById('f-num').value=nextBonNum(canal,todayISO());
   document.getElementById('f-rep').value=b.rep;
   document.getElementById('editBadge').style.display='none';
   autoSort();
