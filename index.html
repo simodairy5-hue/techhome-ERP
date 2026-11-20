@@ -443,32 +443,6 @@
       <!-- Colonne gauche : enregistrer un mouvement + bilan du jour -->
       <div class="form-col">
         <div class="panel">
-          <div class="panel-h">Enregistrer un mouvement</div>
-          <div class="panel-b">
-            <div class="field"><label>Produit</label>
-              <select id="mv-prod"><option value="">— choisir ou saisir ci-dessous —</option></select>
-            </div>
-            <div class="row">
-              <div class="field" style="max-width:150px"><label>Référence</label><input id="mv-ref" type="text" placeholder="VT995"></div>
-              <div class="field"><label>Désignation</label><input id="mv-des" type="text" placeholder="VENTILATEUR VT995"></div>
-            </div>
-            <div class="row">
-              <div class="field"><label>Type</label>
-                <select id="mv-type">
-                  <option value="entree">Entrée (+)</option>
-                  <option value="sortie">Sortie (−)</option>
-                </select>
-              </div>
-              <div class="field" style="max-width:120px"><label>Quantité</label><input id="mv-qte" type="number" min="1" value="1"></div>
-            </div>
-            <div class="field"><label>Date</label><input id="mv-date" type="date"></div>
-            <div class="field"><label>Note (optionnel)</label><input id="mv-note" type="text" placeholder="ex : casse, perte, correction…"></div>
-            <button class="btn btn-primary btn-block" id="mv-save">+ Enregistrer le mouvement</button>
-            <div class="hint" style="margin-top:8px">Les réassorts et les retours se font en haut (<b>Bon de commande / Retour</b>). Ici : corrections manuelles ponctuelles (ex : <b>Sortie</b> pour une casse).</div>
-          </div>
-        </div>
-
-        <div class="panel" style="margin-top:16px">
           <div class="panel-h" style="flex-wrap:wrap">Bilan du jour
             <input id="mv-jour" type="date" style="margin-left:auto;max-width:150px;padding:6px 9px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px">
             <button class="btn btn-dark btn-sm" id="mv-print" style="flex:0 0 100%;margin-top:4px">📄 Imprimer / exporter le bilan en PDF</button>
@@ -2491,37 +2465,7 @@ function renderStkProdSelect(){
   const flt=document.getElementById('mv-filter');
   if(flt){ const cur=flt.value; flt.innerHTML='<option value="">Tous les produits</option>'+prods.map(p=>`<option value="${esc(p.ref)}">${esc(p.ref)}</option>`).join(''); flt.value=cur; }
 }
-document.getElementById('mv-prod').addEventListener('change',e=>{
-  const ref=e.target.value; if(!ref) return;
-  const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref));
-  document.getElementById('mv-ref').value=ref;
-  document.getElementById('mv-des').value=p?(p.des||''):'';
-});
-document.getElementById('mv-save').addEventListener('click',()=>{
-  const ref=document.getElementById('mv-ref').value.trim();
-  if(!ref){ toast('Indique une référence',true); return; }
-  const des=document.getElementById('mv-des').value.trim();
-  const type=document.getElementById('mv-type').value;      // entree | sortie
-  const motif=type==='entree'?'manuel':'';
-  const qte=parseInt(document.getElementById('mv-qte').value)||0;
-  if(qte<=0){ toast('Quantité invalide',true); return; }
-  const date=document.getElementById('mv-date').value||todayISO();
-  const note=document.getElementById('mv-note').value.trim();
-  if(type==='sortie' && resteFor(ref)-qte<0 && !confirm('Le reste deviendra négatif ('+(resteFor(ref)-qte)+'). Continuer ?')) return;
-  ensureProduct(ref,des);
-  mouvements.unshift({id:uid(),date,ref:stockKey(ref),des:des||ref,type,qte,note,motif,createdAt:Date.now()});
-  save(KEY.mouv,mouvements); save(KEY.stock,stock);
-  logAudit('creation',(type==='entree'?'Entrée':'Sortie')+' manuelle — '+stockKey(ref)+' '+(type==='entree'?'+':'−')+qte+' au '+frDate(date)+(note?' ('+note+')':''));
-  mvResetForm(); renderStock();
-  toast((type==='entree'?'Entrée':'Sortie')+' de '+qte+' enregistrée ✓');
-});
-function mvResetForm(){
-  document.getElementById('mv-prod').value='';
-  document.getElementById('mv-ref').value='';
-  document.getElementById('mv-des').value='';
-  document.getElementById('mv-qte').value=1;
-  document.getElementById('mv-note').value='';
-}
+/* Saisie manuelle de mouvement retirée définitivement — tout passe par les bons */
 document.getElementById('stk-sync').addEventListener('click',()=>{
   let n=0; knownProducts().forEach(p=>{ if(!findStock(p.ref)){ registerStockRef(p.ref,p.des); n++; } });
   renderStock();
@@ -3046,7 +2990,7 @@ document.getElementById('mv-print').addEventListener('click',()=>{
    INIT
 ============================================================ */
 /* stock : dates par défaut (la migration tourne après la synchro cloud) */
-try{ document.getElementById('mv-date').value=todayISO(); document.getElementById('mv-jour').value=todayISO(); }catch(e){}
+try{ document.getElementById('mv-jour').value=todayISO(); }catch(e){}
 try{ renderBcProdList(); bcResetForm(); renderBcList(); renderAudit(); }catch(e){}
 refreshProdSelect(); refreshClientSelect(); garProdSelect(); renderStkProdSelect();
 renderCatalogue(); renderClients(); renderHistorique(); renderGarHist(); renderGarSelect(); renderGarDurees(); renderStock(); fillSettings();
