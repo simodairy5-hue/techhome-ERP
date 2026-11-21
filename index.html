@@ -1439,9 +1439,11 @@ function renderHistorique(){
     const stockCell = b.stockDone
       ? `<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">✓ Décompté${b.stockMotif?' · '+esc(sortMotifLabel(b.stockMotif)):''}</span>${nbAnn?'<br><span class="cmd-badge" style="background:#eef2f7;color:#475569;margin-top:3px;display:inline-block">'+nbAnn+' annulée(s)</span>':''}<br><button class="btn btn-ghost btn-sm" data-undo="${b.id}" style="margin-top:4px">Annuler le décompte</button>`
       : `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Canal : <b>${esc((CANAUX[b.canal]&&CANAUX[b.canal].label)||'Ozone')}</b></div><button class="btn btn-primary btn-sm" data-dec="${b.id}">Décompter du stock</button>`;
+    const nAud=bonAudit(b).length;
+    const triBon=nAud?`<button class="audit-tri" data-audit="bon" data-id="${b.id}" title="Voir les modifications de ce bon" style="margin-left:6px;border:none;background:#fff7ed;color:#b45309;border-radius:6px;padding:3px 7px;font-weight:700;font-size:11px;cursor:pointer">⚠ ${nAud}</button>`:'';
     let main=`
     <tr>
-      <td style="white-space:nowrap"><span class="pill">${esc(b.num)||'—'}</span><button class="btn btn-sm hist-exp" data-exp="${b.id}" style="margin-left:8px;padding:4px 10px;font-weight:700;border-radius:8px;border:1px solid #0b7a70;background:${open?'#0b7a70':'#e6f5f3'};color:${open?'#fff':'#0b7a70'}">${open?'▾ Masquer':'▸ Détails'}</button></td>
+      <td style="white-space:nowrap"><span class="pill">${esc(b.num)||'—'}</span><button class="btn btn-sm hist-exp" data-exp="${b.id}" style="margin-left:8px;padding:4px 10px;font-weight:700;border-radius:8px;border:1px solid #0b7a70;background:${open?'#0b7a70':'#e6f5f3'};color:${open?'#fff':'#0b7a70'}">${open?'▾ Masquer':'▸ Détails'}</button>${triBon}</td>
       <td>${frDate(b.date)}</td>
       <td>${esc(b.client.nom)}${b.client.ville?' · '+esc(b.client.ville):''}</td>
       <td class="tcenter">${b.lignes.length}</td>
@@ -1484,6 +1486,7 @@ function renderHistorique(){
     }
     return main+detail;}).join('');
   tb.querySelectorAll('[data-exp]').forEach(x=>x.onclick=()=>{ const k=x.dataset.exp; if(histExpanded.has(k))histExpanded.delete(k); else histExpanded.add(k); renderHistorique(); });
+  tb.querySelectorAll('[data-audit="bon"]').forEach(x=>x.onclick=(e)=>{ e.stopPropagation(); const bb=bons.find(z=>z.id===x.dataset.id); if(bb) showAuditPopover(x,'Bon N°'+(bb.num||'?'),bonAudit(bb)); });
   tb.querySelectorAll('[data-cancel]').forEach(x=>x.onclick=()=>bonLineCancel(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-restore]').forEach(x=>x.onclick=()=>bonLineRestore(x.dataset.bid,x.dataset.lid));
   tb.querySelectorAll('[data-ldel]').forEach(x=>x.onclick=()=>bonLineDelete(x.dataset.bid,x.dataset.lid));
@@ -2719,8 +2722,10 @@ function renderStock(){
     }
     const variants=Object.keys(links).filter(v=>resolveKey(v)===s.ref && v!==s.ref);
     const chips=variants.length?`<div style="margin-top:3px">${variants.map(v=>`<span class="cmd-badge" style="background:#eef2ff;color:#3730a3;margin-right:4px">🔗 ${esc(v)} <a href="#" data-unlink="${esc(v)}" style="color:#b42318;text-decoration:none;font-weight:700" title="Délier">✕</a></span>`).join('')}</div>`:'';
+    const nAud=prodAudit(s.ref).length;
+    const triP=nAud?`<button class="audit-tri" data-audit="prod" data-ref="${esc(s.ref)}" title="Voir les modifications de ce produit" style="margin-left:6px;border:none;background:#fff7ed;color:#b45309;border-radius:6px;padding:2px 6px;font-weight:700;font-size:11px;cursor:pointer">⚠ ${nAud}</button>`:'';
     return `<tr>
-      <td style="font-weight:600">${esc(s.ref)}</td>
+      <td style="font-weight:600">${esc(s.ref)}${triP}</td>
       <td>${esc(s.des)||'—'}${chips}</td>
       <td class="tcenter" style="color:#0b7a70;font-weight:600">${E}</td>
       <td class="tcenter" style="color:#b91c1c;font-weight:600">${S}</td>
@@ -2743,6 +2748,7 @@ function renderStock(){
   tb.querySelectorAll('[data-linkcancel]').forEach(b=>b.onclick=()=>{ stkLinking=null; renderStock(); });
   tb.querySelectorAll('[data-linkok]').forEach(b=>b.onclick=()=>{ const tr=b.closest('tr'); const sel=tr.querySelector('.stk-linksel'); if(sel&&sel.value) linkProduct(b.dataset.linkok, sel.value); });
   tb.querySelectorAll('[data-unlink]').forEach(a=>a.onclick=(e)=>{ e.preventDefault(); unlinkProduct(a.dataset.unlink); });
+  tb.querySelectorAll('[data-audit="prod"]').forEach(x=>x.onclick=(e)=>{ e.stopPropagation(); showAuditPopover(x,'Produit '+x.dataset.ref,prodAudit(x.dataset.ref)); });
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ if(confirm('Retirer ce produit ET tous ses mouvements ?')){ const k=resolveKey(b.dataset.del); const nMv=mouvements.filter(m=>resolveKey(m.ref)===k).length; stock=stock.filter(x=>resolveKey(x.ref)!==k); mouvements=mouvements.filter(m=>resolveKey(m.ref)!==k); if(settings.prodLinks){ Object.keys(settings.prodLinks).forEach(v=>{ if(resolveKey(v)===k) delete settings.prodLinks[v]; }); save(KEY.set,settings); } save(KEY.stock,stock); save(KEY.mouv,mouvements); logAudit('suppression','Produit retiré du stock — '+k+' ('+nMv+' mouvement(s) supprimé(s))'); renderStock(); } });
   renderMouvements(); renderBilan();
 }
@@ -2870,6 +2876,40 @@ document.getElementById('stk-search').addEventListener('input',e=>{ stkSearch=e.
    HISTORIQUE DES MODIFICATIONS (journal d'activité — lecture seule)
 ============================================================ */
 function fmtTS(ts){ const d=new Date(ts||Date.now()); const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+/* ---- historique par article (bon / produit) ---- */
+function escRe(s){ return (s||'').replace(/[.*+?^${}()|[\]\\]/g,'\\$&'); }
+function bonAudit(b){
+  const num=(b.num||'').trim(); if(!num) return [];
+  const re=new RegExp('N°\\s*'+escRe(num)+'(?![0-9A-Za-zÀ-ÿ.])','i');
+  return audit.filter(a=>re.test(a.detail||''));
+}
+function prodAudit(ref){
+  const kset=new Set([resolveKey(ref), stockKey(ref)]);
+  Object.keys(settings.prodLinks||{}).forEach(v=>{ if(resolveKey(v)===resolveKey(ref)) kset.add(stockKey(v)); });
+  const res=[...kset].filter(Boolean).map(k=>new RegExp('(^|[^0-9A-Z])'+escRe(k)+'([^0-9A-Z]|$)','i'));
+  return audit.filter(a=>{ const d=(a.detail||'').toUpperCase(); return res.some(re=>re.test(d)); });
+}
+function closeAuditPopover(){ const pop=document.getElementById('audit-pop'); if(pop)pop.remove(); document.removeEventListener('click',auditPopOutside,true); }
+function auditPopOutside(e){ const pop=document.getElementById('audit-pop'); if(pop && !pop.contains(e.target) && !e.target.closest('[data-audit]')) closeAuditPopover(); }
+function showAuditPopover(anchor, title, entries){
+  closeAuditPopover();
+  const pop=document.createElement('div'); pop.id='audit-pop';
+  pop.style.cssText='position:fixed;z-index:400;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.28);width:360px;max-width:92vw;max-height:52vh;overflow:auto;font-size:12px;';
+  const rows=entries.length? entries.map(a=>`<div style="padding:7px 10px;border-bottom:1px solid var(--line)">
+      <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+        <span class="cmd-badge" style="background:${auditColor(a.action)}">${auditLabel(a.action)}</span>
+        <span style="color:var(--muted);font-size:11px;white-space:nowrap">${fmtTS(a.ts)}</span>
+      </div>
+      <div style="margin-top:3px;color:#1e293b">${esc(a.detail||'')}</div>
+    </div>`).join('') : '<div style="padding:12px;color:var(--muted)">Aucune modification</div>';
+  pop.innerHTML=`<div style="padding:8px 11px;border-bottom:1px solid var(--line);font-weight:700;background:#f8fafc;position:sticky;top:0">${esc(title)} · ${entries.length} modif${entries.length>1?'s':''}</div>${rows}`;
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect();
+  let top=r.bottom+6, left=Math.min(r.left, window.innerWidth-pop.offsetWidth-10);
+  if(top+pop.offsetHeight>window.innerHeight-10) top=Math.max(10, r.top-pop.offsetHeight-6);
+  pop.style.top=Math.max(8,top)+'px'; pop.style.left=Math.max(8,left)+'px';
+  setTimeout(()=>document.addEventListener('click',auditPopOutside,true),0);
+}
 function logAudit(action,detail){
   audit.unshift({id:uid(),ts:Date.now(),action,detail});
   if(audit.length>800) audit=audit.slice(0,800);
