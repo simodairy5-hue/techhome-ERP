@@ -2968,9 +2968,10 @@ function bcFillMotifOptions(kind){
 }
 /* produits sélectionnables = catalogue/bons/garanties + registre du stock (dédupliqués) */
 function bcProducts(){
-  // uniquement les produits réellement dans le stock (supprimer du stock = disparaît d'ici)
+  // uniquement les produits principaux : une réf reliée (alias) n'apparaît pas, seul le produit canonique est proposé
+  const L=settings.prodLinks||{};
   const map={};
-  (stock||[]).forEach(s=>{ const k=resolveKey(s.ref); if(!k) return; if(!map[k]) map[k]={ref:k,des:s.des||''}; else if(stockKey(s.ref)===k && s.des) map[k].des=s.des; });
+  (stock||[]).forEach(s=>{ const own=stockKey(s.ref); if(L[own]) return; const k=resolveKey(s.ref); if(!k) return; if(!map[k]) map[k]={ref:k,des:s.des||''}; else if(own===k && s.des) map[k].des=s.des; });
   return Object.values(map).sort((a,b)=>a.ref.localeCompare(b.ref));
 }
 function bcProdDes(ref){ const p=bcProducts().find(x=>stockKey(x.ref)===stockKey(ref)); return p?(p.des||''):''; }
