@@ -463,6 +463,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="bc-addline" style="margin-top:8px">+ Ajouter une ligne</button>
         <button class="btn btn-primary btn-block" id="bc-save" style="margin-top:10px">✓ Valider le bon → entrée en stock</button>
+        <button class="btn btn-ghost btn-block" id="bc-cancel" style="margin-top:8px;display:none">✕ Annuler la modification</button>
         <div class="hint" style="margin-top:8px">Cherche ou tape une référence : la désignation se remplit toute seule. Une référence inconnue (champ en orange) crée un nouveau produit (confirmation demandée). Valider ajoute les lignes au stock et enregistre le document comme preuve (imprimable en PDF).</div>
         <div id="bc-list" style="display:none;margin-top:16px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
@@ -3069,10 +3070,28 @@ function bcSyncKindUI(){
     else { n.value=bcCurNext(); n.placeholder=''; if(wrap)wrap.classList.remove('raw'); if(suf)suf.textContent='.'+yy2(document.getElementById('bc-date').value); }
   }
 }
+let bcEditId=null;   // document en cours de modification (null = nouveau)
 function bcResetForm(){
+  bcEditId=null;
   document.getElementById('bc-date').value=todayISO();
   const b=bcBody(); if(b){ b.innerHTML=''; bcAddLine(); bcAddLine(); bcAddLine(); }
+  const cx=document.getElementById('bc-cancel'); if(cx) cx.style.display='none';
   bcSyncKindUI();
+}
+function bcEdit(id){
+  const c=commandes.find(x=>x.id===id); if(!c) return;
+  bcEditId=id;
+  document.getElementById('bc-kind').value=c.kind; bcSyncKindUI();
+  let numVal=c.num||''; if(c.kind==='commande') numVal=numVal.replace(/\.\d{2}$/,'');
+  document.getElementById('bc-num').value=numVal;
+  document.getElementById('bc-date').value=c.date||todayISO();
+  const mo=document.getElementById('bc-motif');
+  if(mo){ if(c.kind==='sortie') mo.value=c.motif||'vente'; else if(c.kind==='retour') mo.value=c.canal||'ozone'; }
+  const b=bcBody(); if(b){ b.innerHTML=''; (c.lignes||[]).forEach(l=>bcAddLine(l.ref,l.des,l.qte)); bcEnsureLine(); b.querySelectorAll('tr').forEach(tr=>bcLineSync(tr)); }
+  const s=document.getElementById('bc-save'); if(s) s.textContent='✓ Enregistrer les modifications';
+  const t=document.getElementById('bc-title'); if(t) t.textContent='✏️ Modifier le document N°'+(c.num||'');
+  const cx=document.getElementById('bc-cancel'); if(cx) cx.style.display='block';
+  const tt=document.getElementById('bc-title'); if(tt) tt.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function bcCollect(){
   const out=[];
@@ -3115,12 +3134,19 @@ function bcSave(){
   if(kind==='commande'){ if(!num) num=String(bcCurNext()); num=num+'.'+yy2(date); }   // bon de commande : numéro + .AA (année fixe)
   // retour & sortie : N° collé à la main (réf Ozone/CTM), tel quel
   const fournisseur=kind==='commande'?'Magasin':'';
-  const docId=uid();
+  const editing=!!bcEditId;
+  const docId=bcEditId||uid();
   const storedLignes=lignes.map(l=>({ref:l.ref,des:l.des,qte:l.qte}));
   const doc={id:docId,kind,num,date,fournisseur,lignes:storedLignes,createdAt:Date.now()};
   if(isSortie) doc.motif=motif;
   if(isRetour) doc.canal=canal;
-  commandes.unshift(doc);
+  if(editing){
+    mouvements=mouvements.filter(m=>m.cmdId!==docId);     // on retire l'ancien effet stock
+    const idx=commandes.findIndex(x=>x.id===docId);
+    if(idx>=0){ doc.createdAt=commandes[idx].createdAt||Date.now(); commandes[idx]=doc; } else commandes.unshift(doc);
+  } else {
+    commandes.unshift(doc);
+  }
   let newProds=[];
   lignes.forEach(l=>{
     ensureProduct(l.ref,l.des);
@@ -3129,16 +3155,18 @@ function bcSave(){
     if(isRetour) mv.canal=canal;
     mouvements.unshift(mv);
   });
-  const n=parseInt(num);
-  if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
-  else if(isSortie){ /* pas de compteur : le N° est celui du bon Ozon/CTM, saisi à la main */ }
-  else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
+  if(!editing){
+    const n=parseInt(num);
+    if(kind==='retour'){ if(!isNaN(n)&&n>=(settings.retNext||1)) settings.retNext=n+1; }
+    else if(isSortie){ /* pas de compteur : le N° est celui du bon Ozon/CTM, saisi à la main */ }
+    else { if(!isNaN(n)&&n>=(settings.cmdNext||1)) settings.cmdNext=n+1; }
+  }
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements); save(KEY.stock,stock); save(KEY.set,settings);
   if(newProds.length){ save(KEY.prod,products); try{ refreshProdSelect(); renderCatalogue(); }catch(e){}; logAudit('creation','Nouveau(x) produit(s) créé(s) : '+newProds.join(', ')); }
   const lbl=isSortie?('Bon de sortie'+(num?' N°'+num:'')+' ('+sortMotifLabel(motif)+')'):(isRetour?('Retour N°'+num+(retMotifLabel(canal)?' ('+retMotifLabel(canal)+')':'')):('Bon de commande N°'+num));
-  logAudit('creation',lbl+' — '+lignes.length+' produit(s), '+lignes.reduce((a,l)=>a+(+l.qte||0),0)+' u., daté du '+frDate(date));
+  logAudit(editing?'modification':'creation',(editing?'Document modifié — ':'')+lbl+' — '+lignes.length+' produit(s), '+lignes.reduce((a,l)=>a+(+l.qte||0),0)+' u., daté du '+frDate(date));
   bcResetForm(); renderStock(); renderBcList();
-  toast(lbl+' validé — '+lignes.length+' ligne(s) '+(isSortie?'sorties du':'en')+' stock ✓');
+  toast(editing?('Document N°'+num+' modifié — stock réajusté ✓'):(lbl+' validé — '+lignes.length+' ligne(s) '+(isSortie?'sorties du':'en')+' stock ✓'));
 }
 function bcDelete(id){
   const c=commandes.find(x=>x.id===id); const isRet=c&&c.kind==='retour'; const isSor=c&&c.kind==='sortie';
@@ -3175,9 +3203,11 @@ function renderBcList(){
       const badge='<span class="cmd-badge" style="background:'+col+'">'+lab+'</span>';
       return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;flex-wrap:wrap">
         <div style="flex:1;min-width:180px">${badge} · ${frDate(c.date)} <span style="color:var(--muted)">(${c.lignes.length} réf. · ${u} u.)</span></div>
+        <button class="btn btn-ghost btn-sm" data-bcedit="${c.id}">Modifier</button>
         <button class="btn btn-dark btn-sm" data-bcpdf="${c.id}">📄 PDF</button>
         <button class="btn btn-danger btn-sm" data-bcdel="${c.id}">Suppr.</button>
       </div>`; }).join('');
+  el.querySelectorAll('[data-bcedit]').forEach(b=>b.onclick=()=>bcEdit(b.dataset.bcedit));
   el.querySelectorAll('[data-bcpdf]').forEach(b=>b.onclick=()=>{ const c=commandes.find(x=>x.id===b.dataset.bcpdf); if(c) exportSimplePDF(bcDocHTML(c),(c.kind==='retour'?'RETOUR_':(c.kind==='sortie'?'BON_SORTIE_':'BON_COMMANDE_'))+c.num); });
   el.querySelectorAll('[data-bcdel]').forEach(b=>b.onclick=()=>bcDelete(b.dataset.bcdel));
 }
@@ -3213,6 +3243,7 @@ function bcDocHTML(c){
 }
 document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
 document.getElementById('bc-save').addEventListener('click',bcSave);
+document.getElementById('bc-cancel').addEventListener('click',()=>{ bcResetForm(); toast('Modification annulée'); });
 document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-date').addEventListener('change',()=>{ const suf=document.getElementById('bc-num-suf'); if(suf && bcKind()==='commande') suf.textContent='.'+yy2(document.getElementById('bc-date').value); });
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
