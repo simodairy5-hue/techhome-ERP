@@ -288,6 +288,20 @@
             </div>
             <div class="field"><label>Représentant</label><input id="f-rep" type="text" placeholder="MAGASIN"></div>
 
+            <div id="f-cli-block" style="display:none">
+              <div class="divider"></div>
+              <div class="section-title">Client (vente directe / CTM)</div>
+              <div class="row">
+                <div class="field"><label>Nom</label><input id="f-cli-nom" type="text" placeholder="Nom"></div>
+                <div class="field"><label>Prénom</label><input id="f-cli-prenom" type="text" placeholder="Prénom"></div>
+              </div>
+              <div class="row">
+                <div class="field"><label>Téléphone</label><input id="f-cli-tel" type="text" inputmode="tel" placeholder="06…"></div>
+                <div class="field"><label>Ville</label><input id="f-cli-ville" type="text" placeholder="Ville"></div>
+              </div>
+              <div class="field"><label>Commentaire</label><input id="f-cli-note" type="text" placeholder="Note (optionnel)"></div>
+            </div>
+
             <div class="divider"></div>
             <div class="section-title">Ajouter une ligne</div>
             <div class="field">
@@ -1157,7 +1171,7 @@ function rebuildNum(){
   document.getElementById('f-num').value=full; renderDoc();
 }
 /* ---- live update header fields ---- */
-['f-date','f-rep'].forEach(id=>document.getElementById(id).addEventListener('input',renderDoc));
+['f-date','f-rep','f-cli-nom','f-cli-prenom','f-cli-tel','f-cli-ville','f-cli-note'].forEach(id=>{ const e=document.getElementById(id); if(e) e.addEventListener('input',renderDoc); });
 document.getElementById('f-num-mid').addEventListener('input',rebuildNum);
 document.getElementById('f-date').addEventListener('change',rebuildNum);
 document.getElementById('f-canal').addEventListener('change',()=>{
@@ -1166,21 +1180,35 @@ document.getElementById('f-canal').addEventListener('change',()=>{
   // création → propose le prochain N° du canal ; modification → garde le numéro, change juste le préfixe
   if(!editing) setNumField(nextBonNum(document.getElementById('f-canal').value, document.getElementById('f-date').value));
   else rebuildNum();
+  syncClientBlock(); renderDoc();
 });
 
 /* ============================================================
    RENDU DU DOCUMENT A4
 ============================================================ */
-function buildBonFromForm(){
+function syncClientBlock(){
+  const canal=(document.getElementById('f-canal')||{}).value;
+  const blk=document.getElementById('f-cli-block');
+  if(blk) blk.style.display=(canal==='directe'||canal==='ctm')?'block':'none';
+}
+function formClient(){
+  const canal=document.getElementById('f-canal').value||'ozone';
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  if(canal==='directe'||canal==='ctm'){
+    return { nom:g('f-cli-nom').trim(), prenom:g('f-cli-prenom').trim(), tel:g('f-cli-tel').trim(), ville:g('f-cli-ville').trim(), note:g('f-cli-note').trim(), code:'' };
+  }
   const dc=settings.defaultClient||{nom:'',code:'',ville:''};
   const cli=(current.client&&current.client.nom!==undefined)?current.client:dc;
+  return { nom:cli.nom||'', code:cli.code||'', ville:cli.ville||'', prenom:cli.prenom||'', tel:cli.tel||'', note:cli.note||'' };
+}
+function buildBonFromForm(){
   return {
     id: current.id,
     num: document.getElementById('f-num').value.trim(),
     canal: document.getElementById('f-canal').value||'ozone',
     date: document.getElementById('f-date').value,
     rep: document.getElementById('f-rep').value.trim()||settings.rep||'',
-    client:{ nom:cli.nom||'', code:cli.code||'', ville:cli.ville||'' },
+    client: formClient(),
     lignes: current.lignes.map(l=>({...l})),
     total: total()
   };
@@ -1273,8 +1301,10 @@ function docHTML(b, opts){
         <tr><th>Date</th><th>Responsable</th><th>Page</th></tr>
         <tr><td>${frDate(b.date)}</td><td>${esc(b.client.code)||'—'}</td><td>${pageNo}/${pageCount}</td></tr>
       </table>
-      <div class="client-box">${esc(b.client.nom)||'NOM DU CLIENT'}
-        ${b.client.ville?`<div class="city">${esc(b.client.ville)}</div>`:''}</div>
+      <div class="client-box">${esc(b.client.nom)||'NOM DU CLIENT'}${b.client.prenom?' '+esc(b.client.prenom):''}
+        ${b.client.ville?`<div class="city">${esc(b.client.ville)}</div>`:''}
+        ${b.client.tel?`<div class="city">Tél : ${esc(b.client.tel)}</div>`:''}
+        ${b.client.note?`<div class="city" style="font-style:italic">${esc(b.client.note)}</div>`:''}</div>
     </div>
   </div>
 
@@ -1288,7 +1318,7 @@ function renderDoc(){ document.getElementById('doc').innerHTML=docHTML(buildBonF
    ENREGISTRER / NOUVEAU / IMPRIMER / PDF
 ============================================================ */
 function validBon(b){
-  if(!b.client.nom){ toast('Indique le nom du client',true); return false; }
+  if(b.canal!=='directe' && b.canal!=='ctm' && !b.client.nom){ toast('Indique le nom du client',true); return false; }
   if(!b.lignes.length){ toast('Ajoute au moins une ligne',true); return false; }
   return true;
 }
@@ -1333,7 +1363,13 @@ function resetForm(){
   document.getElementById('editBadge').style.display='none';
   setNumField(nextBonNum(canal,todayISO()));
   document.getElementById('f-rep').value=settings.rep||'';
+  fillClientFields({}); syncClientBlock();
   renderFormLines(); renderDoc();
+}
+function fillClientFields(c){
+  c=c||{};
+  const set=(id,v)=>{ const e=document.getElementById(id); if(e)e.value=v||''; };
+  set('f-cli-nom',c.nom); set('f-cli-prenom',c.prenom); set('f-cli-tel',c.tel); set('f-cli-ville',c.ville); set('f-cli-note',c.note);
 }
 
 function printBon(b){
@@ -1445,7 +1481,7 @@ function renderHistorique(){
     <tr>
       <td style="white-space:nowrap"><span class="pill">${esc(b.num)||'—'}</span><button class="btn btn-sm hist-exp" data-exp="${b.id}" style="margin-left:8px;padding:4px 10px;font-weight:700;border-radius:8px;border:1px solid #0b7a70;background:${open?'#0b7a70':'#e6f5f3'};color:${open?'#fff':'#0b7a70'}">${open?'▾ Masquer':'▸ Détails'}</button>${triBon}</td>
       <td>${frDate(b.date)}</td>
-      <td>${esc(b.client.nom)}${b.client.ville?' · '+esc(b.client.ville):''}</td>
+      <td>${esc(b.client.nom)}${b.client.prenom?' '+esc(b.client.prenom):''}${b.client.ville?' · '+esc(b.client.ville):''}${b.client.tel?'<div style="font-size:11px;color:var(--muted)">'+esc(b.client.tel)+'</div>':''}</td>
       <td class="tcenter">${b.lignes.length}</td>
       <td class="tright price-ui" style="font-weight:700">${fmt(b.total)}</td>
       <td class="tcenter">${stockCell}</td>
@@ -1677,18 +1713,21 @@ function loadBon(id){
   document.getElementById('editBadge').style.display='inline-block';
   setNumField(b.num);
   document.getElementById('f-rep').value=b.rep;
+  fillClientFields(b.client); syncClientBlock();
   autoSort();
   renderFormLines(); renderDoc(); gotoCreer();
 }
 function duplicateBon(id){
   const b=bons.find(z=>z.id===id); if(!b) return;
   current={id:null,lignes:b.lignes.map(l=>({...l})),client:{...(b.client||settings.defaultClient||{})}};
+  fillClientFields(b.client);
   const canal=b.canal||'ozone';
   document.getElementById('f-canal').value=canal;
   document.getElementById('f-date').value=todayISO();
   document.getElementById('editBadge').style.display='none';
   setNumField(nextBonNum(canal,todayISO()));
   document.getElementById('f-rep').value=b.rep;
+  syncClientBlock();
   autoSort();
   renderFormLines(); renderDoc(); gotoCreer(); toast('Bon dupliqué — nouveau N°');
 }
