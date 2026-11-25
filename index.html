@@ -3171,13 +3171,35 @@ function bcSave(){
 function bcDelete(id){
   const c=commandes.find(x=>x.id===id); const isRet=c&&c.kind==='retour'; const isSor=c&&c.kind==='sortie';
   const nom=isSor?'bon de sortie':(isRet?'retour':'bon de commande');
-  if(!confirm('Supprimer ce '+nom+(c?' N°'+c.num:'')+' et annuler son effet sur le stock ?')) return;
+  if(!c){ commandes=commandes.filter(x=>x.id!==id); save(KEY.cmd,commandes); renderBcList(); return; }
+  const type=isSor?'sortie':'entree';
+  // 1) mouvements directement liés par cmdId
+  let removeIds=new Set(mouvements.filter(m=>m.cmdId===id).map(m=>m.id));
+  // 2) ancien document (lien cassé) : on retrouve ses mouvements orphelins par date + type + lignes, borné à la quantité du doc
+  if(!removeIds.size){
+    const ownerIds=new Set([...commandes.map(x=>x.id),...bons.map(x=>x.id)]); ownerIds.delete(id);
+    (c.lignes||[]).forEach(l=>{ let need=+l.qte||0; const k=resolveKey(l.ref);
+      mouvements.forEach(m=>{ if(need<=0||removeIds.has(m.id)) return;
+        if(m.type!==type || m.date!==c.date) return;
+        if(m.cmdId && ownerIds.has(m.cmdId)) return;      // appartient à un autre document/bon → on n'y touche pas
+        if(resolveKey(m.ref)!==k) return;
+        if((+m.qte||0)>need) return;                       // ne dépasse jamais la quantité de la ligne
+        removeIds.add(m.id); need-=(+m.qte||0);
+      });
+    });
+  }
+  const removed=removeIds.size;
+  const sumQ=mouvements.filter(m=>removeIds.has(m.id)).reduce((a,m)=>a+(+m.qte||0),0);
+  const msg=removed
+    ? 'Supprimer ce '+nom+(c.num?' N°'+c.num:'')+' ?\n→ '+removed+' mouvement(s) ('+sumQ+' u.) seront retirés du stock — effet annulé.'
+    : 'Supprimer ce '+nom+(c.num?' N°'+c.num:'')+' ?\n⚠ Aucun mouvement de stock lié n\'a été trouvé : le document part mais le stock ne changera pas.';
+  if(!confirm(msg)) return;
   commandes=commandes.filter(x=>x.id!==id);
-  mouvements=mouvements.filter(m=>m.cmdId!==id);
+  mouvements=mouvements.filter(m=>!removeIds.has(m.id));
   save(KEY.cmd,commandes); save(KEY.mouv,mouvements);
-  logAudit('suppression',(isSor?'Bon de sortie N°':(isRet?'Retour N°':'Bon de commande N°'))+(c?c.num:'')+' supprimé — effet annulé sur le stock');
+  logAudit('suppression',(isSor?'Bon de sortie N°':(isRet?'Retour N°':'Bon de commande N°'))+(c.num||'')+' supprimé — '+removed+' mouvement(s) retiré(s) du stock');
   renderStock(); renderBcList();
-  toast('Document supprimé ✓');
+  toast('Document supprimé — '+removed+' mouvement(s) retiré(s) ✓');
 }
 function bcDocTypeLabel(c){ return c.kind==='sortie'?'Sortie':(c.kind==='retour'?'Retour':'Bon de commande'); }
 /* texte fouillé par la recherche pour un document */
