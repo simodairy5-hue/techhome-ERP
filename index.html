@@ -350,7 +350,7 @@
   <!-- =================== HISTORIQUE =================== -->
   <div class="view" id="view-historique">
     <div class="panel">
-      <div class="panel-h">Bons <span id="hist-count" class="pill"></span></div>
+      <div class="panel-h" style="flex-wrap:wrap;gap:8px">Bons <span id="hist-count" class="pill"></span><button class="btn btn-ghost btn-sm" id="hist-archold" style="margin-left:auto" title="Marquer tous les anciens bons (N° simple, non décomptés) comme déjà comptés">🔒 Verrouiller les anciens bons</button></div>
       <div class="panel-b" style="padding:0">
         <table class="data" id="hist-table">
           <thead><tr><th>N°</th><th>Date</th><th>Client</th><th class="tcenter">Lignes</th><th class="tright price-ui">Total</th><th class="tcenter">Stock</th><th class="tright">Actions</th></tr></thead>
@@ -1473,9 +1473,11 @@ function renderHistorique(){
   tb.innerHTML=bons.map(b=>{
     const open=histExpanded.has(b.id);
     const nbAnn=(b.lignes||[]).filter(l=>l.annule).length;
-    const stockCell = b.stockDone
+    const stockCell = b.archived
+      ? `<span class="cmd-badge" style="background:#eef2f7;color:#475569">📦 Déjà compté (ancien)</span><br><button class="btn btn-ghost btn-sm" data-unarch="${b.id}" style="margin-top:4px;font-size:11px">Déverrouiller</button>`
+      : b.stockDone
       ? `<span class="cmd-badge" style="background:#e6f5f3;color:#0b7a70">✓ Décompté${b.stockMotif?' · '+esc(sortMotifLabel(b.stockMotif)):''}</span>${nbAnn?'<br><span class="cmd-badge" style="background:#eef2f7;color:#475569;margin-top:3px;display:inline-block">'+nbAnn+' annulée(s)</span>':''}<br><button class="btn btn-ghost btn-sm" data-undo="${b.id}" style="margin-top:4px">Annuler le décompte</button>`
-      : `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Canal : <b>${esc((CANAUX[b.canal]&&CANAUX[b.canal].label)||'Ozone')}</b></div><button class="btn btn-primary btn-sm" data-dec="${b.id}">Décompter du stock</button>`;
+      : `<div style="font-size:11px;color:var(--muted);margin-bottom:4px">Canal : <b>${esc((CANAUX[b.canal]&&CANAUX[b.canal].label)||'Ozone')}</b></div><button class="btn btn-primary btn-sm" data-dec="${b.id}">Décompter du stock</button><br><button class="btn btn-ghost btn-sm" data-arch="${b.id}" style="margin-top:4px;font-size:11px;color:#64748b">🔒 Déjà compté</button>`;
     const nAud=bonAudit(b).length;
     const triBon=nAud?`<button class="audit-tri" data-audit="bon" data-id="${b.id}" title="Voir les modifications de ce bon" style="margin-left:6px;border:none;background:#fff7ed;color:#b45309;border-radius:6px;padding:3px 7px;font-weight:700;font-size:11px;cursor:pointer">⚠ ${nAud}</button>`:'';
     let main=`
@@ -1532,6 +1534,8 @@ function renderHistorique(){
   tb.querySelectorAll('[data-dup]').forEach(b=>b.onclick=()=>duplicateBon(b.dataset.dup));
   tb.querySelectorAll('[data-dec]').forEach(btn=>btn.onclick=()=>{ const bb=bons.find(z=>z.id===btn.dataset.dec); const mo=(bb&&CANAUX[bb.canal]&&CANAUX[bb.canal].motif)||'vente'; stockDecompte(btn.dataset.dec, mo); });
   tb.querySelectorAll('[data-undo]').forEach(btn=>btn.onclick=()=>stockDecompteUndo(btn.dataset.undo));
+  tb.querySelectorAll('[data-arch]').forEach(btn=>btn.onclick=()=>archiveBon(btn.dataset.arch));
+  tb.querySelectorAll('[data-unarch]').forEach(btn=>btn.onclick=()=>archiveBon(btn.dataset.unarch,false));
   tb.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     if(confirm('Supprimer ce bon ?')){ const x=bons.find(z=>z.id===b.dataset.del); if(x&&x.stockDone){ mouvements=mouvements.filter(m=>m.cmdId!==x.id); save(KEY.mouv,mouvements); } bons=bons.filter(z=>z.id!==b.dataset.del); save(KEY.bon,bons); renderHistorique(); try{renderStock();}catch(e){} toast('Bon supprimé'); }
   });
@@ -1659,6 +1663,26 @@ function confirmDecompte(){
   save(KEY.set,settings);
   closeDecPreview();
   applyDecompte(bonId,motif);
+}
+/* verrouille/déverrouille un bon comme « déjà compté (ancien système) » : plus décomptable */
+function archiveBon(bonId, on){
+  const b=bons.find(z=>z.id===bonId); if(!b) return;
+  if(on===undefined) on=true;
+  if(on && b.stockDone){ toast('Ce bon est décompté — annule d\'abord le décompte',true); return; }
+  b.archived=!!on; save(KEY.bon,bons);
+  logAudit('modification','Bon N°'+(b.num||'?')+(on?' marqué « déjà compté » (ne plus décompter)':' déverrouillé'));
+  renderHistorique();
+  toast(on?'Bon marqué « déjà compté » ✓':'Bon déverrouillé ✓');
+}
+/* marque d'un coup tous les anciens bons (N° numérique, non décomptés) comme déjà comptés */
+function archiveOldBons(){
+  const old=bons.filter(b=>!b.stockDone && !b.archived && /^\d+$/.test((b.num||'').trim()));
+  if(!old.length){ toast('Aucun ancien bon à verrouiller'); return; }
+  if(!confirm('Marquer '+old.length+' ancien(s) bon(s) à numéro simple (ex: 23 à 34) comme « déjà compté » ?\nIls ne pourront plus être décomptés (le stock de cette période est déjà fait). Réversible.')) return;
+  old.forEach(b=>b.archived=true); save(KEY.bon,bons);
+  logAudit('modification',old.length+' ancien(s) bon(s) marqué(s) « déjà compté »');
+  renderHistorique();
+  toast(old.length+' bon(s) verrouillé(s) « déjà compté » ✓');
 }
 function stockDecompteUndo(bonId){
   const b=bons.find(z=>z.id===bonId); if(!b||!b.stockDone) return;
@@ -3266,6 +3290,7 @@ function bcDocHTML(c){
 document.getElementById('bc-addline').addEventListener('click',()=>bcAddLine());
 document.getElementById('bc-save').addEventListener('click',bcSave);
 document.getElementById('bc-cancel').addEventListener('click',()=>{ bcResetForm(); toast('Modification annulée'); });
+document.getElementById('hist-archold').addEventListener('click',archiveOldBons);
 document.getElementById('bc-kind').addEventListener('change',bcSyncKindUI);
 document.getElementById('bc-date').addEventListener('change',()=>{ const suf=document.getElementById('bc-num-suf'); if(suf && bcKind()==='commande') suf.textContent='.'+yy2(document.getElementById('bc-date').value); });
 document.getElementById('bc-toglist').addEventListener('click',()=>{ const el=document.getElementById('bc-list'); el.style.display=(el.style.display==='none')?'block':'none'; });
